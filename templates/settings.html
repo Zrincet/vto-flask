@@ -1,0 +1,899 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}系统设置{% endblock %}
+
+{% block topbar_actions %}
+<div class="btn-group">
+    <button type="button" class="btn btn-outline-info btn-sm" id="testConnectionBtn">
+        <i class="fas fa-plug"></i>
+        <span class="d-none d-sm-inline">测试连接</span>
+    </button>
+    <button type="button" class="btn btn-outline-info btn-sm" id="syncBemfaBtn">
+        <i class="fas fa-sync"></i>
+        <span class="d-none d-sm-inline">同步巴法云</span>
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+        <h1>系统设置</h1>
+        <p class="page-subtitle">配置MQTT服务和巴法云集成</p>
+    </div>
+    
+    <!-- 服务状态概览 -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="status-icon {{ 'status-success' if mqtt_enabled else 'status-danger' }} mx-auto mb-3">
+                        <i class="fas fa-{{ 'toggle-on' if mqtt_enabled else 'toggle-off' }}"></i>
+                    </div>
+                    <h5 class="card-title">MQTT服务</h5>
+                    <p class="card-text">{{ '已启用' if mqtt_enabled else '已禁用' }}</p>
+                    <span class="badge {{ 'bg-success' if mqtt_enabled else 'bg-secondary' }}">
+                        {{ '运行中' if mqtt_enabled else '已停止' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="status-icon {{ 'status-success' if mqtt_connected else 'status-warning' }} mx-auto mb-3">
+                        <i class="fas fa-{{ 'wifi' if mqtt_connected else 'wifi-slash' }}"></i>
+                    </div>
+                    <h5 class="card-title">连接状态</h5>
+                    <p class="card-text">{{ '已连接' if mqtt_connected else '未连接' }}</p>
+                    <span class="badge {{ 'bg-success' if mqtt_connected else 'bg-warning' }}">
+                        {{ '在线' if mqtt_connected else '离线' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="status-icon {{ 'status-success' if bemfa_keys else 'status-danger' }} mx-auto mb-3">
+                        <i class="fas fa-{{ 'key' if bemfa_keys else 'key-slash' }}"></i>
+                    </div>
+                    <h5 class="card-title">巴法云账号</h5>
+                    <p class="card-text">{{ bemfa_keys|length }} 个账号</p>
+                    <span class="badge {{ 'bg-success' if bemfa_keys else 'bg-secondary' }}">
+                        {{ '已配置' if bemfa_keys else '未配置' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- MQTT服务配置 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-cog text-primary"></i>
+                MQTT服务
+            </h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('save_settings') }}" class="settings-form">
+                <div class="form-group">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <label class="form-label mb-0">MQTT服务状态</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="mqtt_enabled" name="mqtt_enabled" {{ 'checked' if mqtt_enabled }}>
+                            <label class="form-check-label" for="mqtt_enabled">
+                                启用MQTT服务
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-text">
+                        <i class="fas fa-info-circle text-primary"></i>
+                        开启后可通过巴法云MQTT进行远程控制
+                    </div>
+                </div>
+                
+                <div class="form-actions mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i>
+                        保存设置
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 巴法云密钥管理 -->
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-cloud text-primary"></i>
+                    巴法云密钥管理
+                </h5>
+                <button type="button" class="btn btn-primary btn-sm" id="addKeyBtn">
+                    <i class="fas fa-plus"></i>
+                    添加密钥
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if bemfa_keys %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>密钥</th>
+                            <th>状态</th>
+                            <th>添加时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for key in bemfa_keys %}
+                        <tr>
+                            <td>
+                                <div class="key-name">{{ key.name }}</div>
+                            </td>
+                            <td>
+                                <div class="key-display">
+                                    <span class="key-masked">{{ key.key[:8] }}****{{ key.key[-4:] }}</span>
+                                    <span class="key-full" style="display: none;">{{ key.key }}</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary toggle-key-display-btn">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge {{ 'bg-success' if key.enabled else 'bg-secondary' }}">
+                                    {{ '启用' if key.enabled else '禁用' }}
+                                </span>
+                            </td>
+                            <td>
+                                <small class="text-muted">{{ key.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary edit-key-btn" data-key-id="{{ key.id }}">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-{{ 'secondary' if key.enabled else 'success' }} toggle-key-btn" data-key-id="{{ key.id }}">
+                                        <i class="fas fa-{{ 'eye-slash' if key.enabled else 'eye' }}"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger delete-key-btn" data-key-id="{{ key.id }}" data-key-name="{{ key.name }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-key fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">暂无巴法云密钥</h5>
+                <p class="text-muted">请添加您的巴法云账号私钥以启用MQTT功能</p>
+                <button type="button" class="btn btn-primary" id="addKeyBtn2">
+                    <i class="fas fa-plus"></i>
+                    添加密钥
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- 配置说明 -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-question-circle text-info"></i>
+                配置说明
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="help-section">
+                        <h6 class="text-primary">如何获取巴法云私钥：</h6>
+                        <ol class="help-list">
+                            <li>访问 <a href="https://bemfa.com" target="_blank" class="text-primary">巴法云官网</a></li>
+                            <li>注册账户并登录</li>
+                            <li>在控制台中找到您的私钥</li>
+                            <li>复制私钥并粘贴到添加窗口</li>
+                        </ol>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="help-section">
+                        <h6 class="text-primary">多账号说明：</h6>
+                        <ul class="help-list">
+                            <li>支持添加多个巴法云账号</li>
+                            <li>所有启用的账号将同步相同的设备</li>
+                            <li>MQTT会同时连接所有启用的账号</li>
+                            <li>可以临时禁用某个账号而不删除</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="col-12">
+                    <div class="help-section">
+                        <h6 class="text-primary">支持的控制命令：</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="command-item">
+                                    <span class="command-badge">打开</span>
+                                    <span class="command-badge">open</span>
+                                    <span class="command-badge">on</span>
+                                    <small class="text-muted d-block mt-1">开锁命令</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="command-item">
+                                    <span class="command-badge">关闭</span>
+                                    <span class="command-badge">close</span>
+                                    <span class="command-badge">off</span>
+                                    <small class="text-muted d-block mt-1">关闭状态</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="command-item">
+                                    <span class="command-badge">状态</span>
+                                    <span class="command-badge">status</span>
+                                    <small class="text-muted d-block mt-1">查询状态</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加密钥模态框 -->
+<div class="modal fade" id="addKeyModal" tabindex="-1" aria-labelledby="addKeyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addKeyModalLabel">添加巴法云密钥</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addKeyForm">
+                    <div class="mb-3">
+                        <label for="keyName" class="form-label">密钥名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="keyName" name="name" placeholder="请输入密钥名称，如：主账号、备用账号等" required>
+                        <div class="form-text">方便识别不同的巴法云账号</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="keyValue" class="form-label">巴法云私钥 <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="keyValue" name="key" placeholder="请输入32位巴法云私钥" required>
+                            <button class="btn btn-outline-secondary" type="button" id="toggleAddKey">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">从巴法云控制台获取的32位私钥</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="keyEnabled" name="enabled" checked>
+                            <label class="form-check-label" for="keyEnabled">
+                                启用此密钥
+                            </label>
+                        </div>
+                        <div class="form-text">只有启用的密钥才会用于同步设备和MQTT连接</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveKeyBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑密钥模态框 -->
+<div class="modal fade" id="editKeyModal" tabindex="-1" aria-labelledby="editKeyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editKeyModalLabel">编辑巴法云密钥</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editKeyForm">
+                    <input type="hidden" id="editKeyId" name="id">
+                    <div class="mb-3">
+                        <label for="editKeyName" class="form-label">密钥名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editKeyName" name="name" placeholder="请输入密钥名称" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editKeyValue" class="form-label">巴法云私钥 <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="editKeyValue" name="key" placeholder="请输入32位巴法云私钥" required>
+                            <button class="btn btn-outline-secondary" type="button" id="toggleEditKey">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="editKeyEnabled" name="enabled">
+                            <label class="form-check-label" for="editKeyEnabled">
+                                启用此密钥
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="updateKeyBtn">更新</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.settings-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.status-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+}
+
+.status-success {
+    background-color: rgba(40, 167, 69, 0.1);
+    color: #28a745;
+}
+
+.status-warning {
+    background-color: rgba(255, 193, 7, 0.1);
+    color: #ffc107;
+}
+
+.status-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.5rem;
+}
+
+.form-control {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+}
+
+.form-control:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-check-input {
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid #d1d5db;
+    border-radius: 4px;
+    margin-top: 0.125rem;
+}
+
+.form-check-input:checked {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
+.form-check-label {
+    font-weight: 500;
+    color: #374151;
+}
+
+.btn {
+    border-radius: 8px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
+.btn-primary:hover {
+    background-color: #1d4ed8;
+    border-color: #1d4ed8;
+}
+
+.btn-outline-secondary {
+    border-color: #6b7280;
+    color: #6b7280;
+}
+
+.btn-outline-secondary:hover {
+    background-color: #6b7280;
+    border-color: #6b7280;
+}
+
+.help-section {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    height: 100%;
+}
+
+.help-list {
+    padding-left: 1.5rem;
+    margin-bottom: 0;
+}
+
+.help-list li {
+    margin-bottom: 0.5rem;
+}
+
+.command-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.command-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background-color: #e2e8f0;
+    color: #475569;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.key-name {
+    font-weight: 600;
+}
+
+.key-display {
+    display: flex;
+    align-items: center;
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.key-masked, .key-full {
+    background-color: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid #dee2e6;
+    margin-right: 0.5rem;
+    min-width: 200px;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.btn-group .btn {
+    margin-right: 0.25rem;
+}
+
+.btn-group .btn:last-child {
+    margin-right: 0;
+}
+
+@media (max-width: 768px) {
+    .btn-group .btn {
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .key-display {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .key-masked, .key-full {
+        margin-right: 0;
+        margin-bottom: 0.5rem;
+        min-width: auto;
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const settingsForm = document.querySelector('.settings-form');
+    const mqttEnabledCheckbox = document.getElementById('mqtt_enabled');
+    const testConnectionBtn = document.getElementById('testConnectionBtn');
+    const syncBemfaBtn = document.getElementById('syncBemfaBtn');
+    
+    // 模态框实例
+    const addKeyModal = new bootstrap.Modal(document.getElementById('addKeyModal'));
+    const editKeyModal = new bootstrap.Modal(document.getElementById('editKeyModal'));
+    
+    // 表单提交前验证
+    settingsForm.addEventListener('submit', function(e) {
+        // 显示提交状态
+        const submitBtn = this.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+        
+        // 如果保存失败，恢复按钮状态
+        setTimeout(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> 保存设置';
+        }, 5000);
+    });
+    
+    // 测试连接按钮
+    testConnectionBtn.addEventListener('click', function() {
+        const originalHTML = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 测试中...';
+        
+        setTimeout(() => {
+            this.disabled = false;
+            this.innerHTML = originalHTML;
+            showMessage('info', '连接测试功能将在后续版本中实现');
+        }, 2000);
+    });
+    
+    // 同步巴法云按钮
+    syncBemfaBtn.addEventListener('click', function() {
+        const originalHTML = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同步中...';
+        
+        fetch('/sync_bemfa_devices', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage('success', data.message);
+            } else {
+                showMessage('error', data.message);
+            }
+        })
+        .catch(error => {
+            showMessage('error', '网络错误: ' + error.message);
+        })
+        .finally(() => {
+            this.disabled = false;
+            this.innerHTML = originalHTML;
+        });
+    });
+    
+    // 添加密钥按钮事件
+    const addKeyBtn = document.getElementById('addKeyBtn');
+    const addKeyBtn2 = document.getElementById('addKeyBtn2');
+    
+    if (addKeyBtn) {
+        addKeyBtn.addEventListener('click', function() {
+            console.log('addKeyBtn clicked');
+            addKeyModal.show();
+        });
+    }
+    
+    if (addKeyBtn2) {
+        addKeyBtn2.addEventListener('click', function() {
+            console.log('addKeyBtn2 clicked');
+            addKeyModal.show();
+        });
+    }
+    
+    // 保存密钥按钮事件
+    const saveKeyBtn = document.getElementById('saveKeyBtn');
+    if (saveKeyBtn) {
+        saveKeyBtn.addEventListener('click', function() {
+            console.log('saveKeyBtn clicked');
+            const form = document.getElementById('addKeyForm');
+            const formData = new FormData(form);
+            
+            // 验证表单
+            if (!formData.get('name') || !formData.get('key')) {
+                showMessage('error', '请填写所有必填字段');
+                return;
+            }
+            
+            // 验证密钥格式
+            const key = formData.get('key');
+            if (key.length !== 32) {
+                showMessage('error', '巴法云私钥必须是32位字符');
+                return;
+            }
+            
+            console.log('Sending request to /add_bemfa_key_api');
+            // 发送请求
+            fetch('/add_bemfa_key_api', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Response:', data);
+                if (data.success) {
+                    showMessage('success', data.message);
+                    addKeyModal.hide();
+                    location.reload();
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('error', '网络错误: ' + error.message);
+            });
+        });
+    } else {
+        console.error('saveKeyBtn not found');
+    }
+    
+    // 更新密钥按钮事件
+    const updateKeyBtn = document.getElementById('updateKeyBtn');
+    if (updateKeyBtn) {
+        updateKeyBtn.addEventListener('click', function() {
+            console.log('updateKeyBtn clicked');
+            const form = document.getElementById('editKeyForm');
+            const formData = new FormData(form);
+            const keyId = formData.get('id');
+            
+            // 验证表单
+            if (!formData.get('name') || !formData.get('key')) {
+                showMessage('error', '请填写所有必填字段');
+                return;
+            }
+            
+            // 验证密钥格式
+            const key = formData.get('key');
+            if (key.length !== 32) {
+                showMessage('error', '巴法云私钥必须是32位字符');
+                return;
+            }
+            
+            console.log('Sending request to /edit_bemfa_key_api/' + keyId);
+            // 发送请求
+            fetch(`/edit_bemfa_key_api/${keyId}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Response:', data);
+                if (data.success) {
+                    showMessage('success', data.message);
+                    editKeyModal.hide();
+                    location.reload();
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('error', '网络错误: ' + error.message);
+            });
+        });
+    } else {
+        console.error('updateKeyBtn not found');
+    }
+    
+    // 统一的事件委托监听器
+    document.addEventListener('click', function(e) {
+        // 密钥显示/隐藏功能
+        if (e.target.closest('#toggleAddKey')) {
+            const input = document.getElementById('keyValue');
+            const icon = e.target.closest('#toggleAddKey').querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        } else if (e.target.closest('#toggleEditKey')) {
+            const input = document.getElementById('editKeyValue');
+            const icon = e.target.closest('#toggleEditKey').querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+        // 巴法云密钥按钮事件
+        else if (e.target.closest('.edit-key-btn')) {
+            const keyId = e.target.closest('.edit-key-btn').dataset.keyId;
+            console.log('Edit key button clicked, keyId:', keyId);
+            editKey(keyId);
+        } else if (e.target.closest('.toggle-key-btn')) {
+            const keyId = e.target.closest('.toggle-key-btn').dataset.keyId;
+            console.log('Toggle key button clicked, keyId:', keyId);
+            toggleKeyStatus(keyId);
+        } else if (e.target.closest('.delete-key-btn')) {
+            const keyId = e.target.closest('.delete-key-btn').dataset.keyId;
+            const keyName = e.target.closest('.delete-key-btn').dataset.keyName;
+            console.log('Delete key button clicked, keyId:', keyId, 'keyName:', keyName);
+            deleteKey(keyId, keyName);
+        } else if (e.target.closest('.toggle-key-display-btn')) {
+            console.log('Toggle key display button clicked');
+            toggleKey(e.target.closest('.toggle-key-display-btn'));
+        }
+    });
+});
+
+// 密钥显示/隐藏功能
+function toggleKey(button) {
+    const keyDisplay = button.parentElement;
+    const keyMasked = keyDisplay.querySelector('.key-masked');
+    const keyFull = keyDisplay.querySelector('.key-full');
+    const icon = button.querySelector('i');
+    
+    if (keyMasked.style.display === 'none') {
+        keyMasked.style.display = 'block';
+        keyFull.style.display = 'none';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    } else {
+        keyMasked.style.display = 'none';
+        keyFull.style.display = 'block';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    }
+}
+
+// 编辑密钥
+function editKey(keyId) {
+    console.log('editKey function called with keyId:', keyId);
+    fetch(`/get_bemfa_key_api/${keyId}`)
+        .then(response => response.json())
+        .then(data => {
+            console.log('editKey response:', data);
+            if (data.success) {
+                const key = data.key;
+                document.getElementById('editKeyId').value = key.id;
+                document.getElementById('editKeyName').value = key.name;
+                document.getElementById('editKeyValue').value = key.key;
+                document.getElementById('editKeyEnabled').checked = key.enabled;
+                
+                // 使用已定义的modal实例
+                const editKeyModal = bootstrap.Modal.getInstance(document.getElementById('editKeyModal')) || new bootstrap.Modal(document.getElementById('editKeyModal'));
+                editKeyModal.show();
+            } else {
+                showMessage('error', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('editKey error:', error);
+            showMessage('error', '网络错误: ' + error.message);
+        });
+}
+
+// 切换密钥状态
+function toggleKeyStatus(keyId) {
+    console.log('toggleKeyStatus function called with keyId:', keyId);
+    fetch(`/toggle_bemfa_key_api/${keyId}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('toggleKeyStatus response:', data);
+        if (data.success) {
+            showMessage('success', data.message);
+            location.reload();
+        } else {
+            showMessage('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('toggleKeyStatus error:', error);
+        showMessage('error', '网络错误: ' + error.message);
+    });
+}
+
+// 删除密钥
+function deleteKey(keyId, keyName) {
+    console.log('deleteKey function called with keyId:', keyId, 'keyName:', keyName);
+    if (confirm(`确定要删除密钥 "${keyName}" 吗？此操作不可恢复。`)) {
+        console.log('User confirmed deletion');
+        fetch(`/delete_bemfa_key_api/${keyId}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('deleteKey response:', data);
+            if (data.success) {
+                showMessage('success', data.message);
+                location.reload();
+            } else {
+                showMessage('error', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('deleteKey error:', error);
+            showMessage('error', '网络错误: ' + error.message);
+        });
+    } else {
+        console.log('User cancelled deletion');
+    }
+}
+
+// 显示消息
+function showMessage(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 
+                     type === 'error' ? 'alert-danger' : 
+                     type === 'warning' ? 'alert-warning' : 'alert-info';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 
+                     type === 'error' ? 'fa-exclamation-circle' : 
+                     type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas ${iconClass}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    // 找到或创建消息容器
+    let container = document.querySelector('.alert-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'alert-container';
+        container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 1050; max-width: 400px;';
+        document.body.appendChild(container);
+    }
+    
+    container.innerHTML = alertHTML;
+    
+    // 自动关闭消息
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 

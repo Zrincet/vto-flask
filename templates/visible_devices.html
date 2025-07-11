@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}可见设备 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}可见设备{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('manage_visible_devices') }}" class="btn btn-outline-primary btn-sm">
+    <i class="fas fa-cog"></i>
+    <span class="d-none d-sm-inline">管理设备</span>
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="visible-devices-container">
+    <div class="page-header">
+        <h1>可见设备</h1>
+        <p class="page-subtitle">管理和控制您的VTO设备</p>
+    </div>
+    
+    {% if devices %}
+    <div class="search-section">
+        <div class="search-input-group">
+            <input type="text" class="form-control" placeholder="搜索设备名称、区域、楼栋..." id="deviceSearch">
+            <button class="search-button" type="button">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div class="devices-list" id="devicesList">
+        {% for device in devices %}
+        <div class="device-item" data-device-id="{{ device.id }}" data-search-text="{{ device.name }} {{ device.section_number }}区 {{ device.building_number }}幢 {{ device.ip }}">
+            <div class="device-icon">
+                <i class="fas fa-door-open"></i>
+            </div>
+            
+            <div class="device-info">
+                <div class="device-name">{{ device.name }}</div>
+                <div class="device-details">
+                    <div class="device-location">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span>{{ device.section_number }}区{{ device.building_number }}幢{% if device.position %}{{ device.position }}号{% endif %}</span>
+                    </div>
+                    <div class="device-ip">
+                        <i class="fas fa-network-wired"></i>
+                        <span>{{ device.ip }}</span>
+                    </div>
+                    <div class="device-status">
+                        <div class="status-indicator {{ 'online' if device.status == 'online' else 'offline' }}"></div>
+                        <span>{{ '在线' if device.status == 'online' else '离线' }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="device-actions">
+                <button class="action-btn unlock-btn" data-device-id="{{ device.id }}" title="开锁">
+                    <i class="fas fa-unlock"></i>
+                </button>
+                <a href="{{ url_for('edit_device', device_id=device.id, return_to='visible_devices') }}" class="action-btn" title="编辑">
+                    <i class="fas fa-edit"></i>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if device_count > 0 %}
+    <div class="mt-4 text-center text-muted">
+        <small>共 {{ device_count }} 个可见设备</small>
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">
+            <i class="fas fa-eye-slash"></i>
+        </div>
+        <h3>暂无可见设备</h3>
+        <p>请先配置可见设备以便管理和控制</p>
+        <a href="{{ url_for('manage_visible_devices') }}" class="btn btn-primary">
+            <i class="fas fa-cog"></i>
+            管理可见设备
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 搜索功能
+    const searchInput = document.getElementById('deviceSearch');
+    const devicesList = document.getElementById('devicesList');
+    
+    if (searchInput && devicesList) {
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase().trim();
+            const deviceItems = devicesList.querySelectorAll('.device-item');
+            
+            deviceItems.forEach(item => {
+                const searchText = item.getAttribute('data-search-text').toLowerCase();
+                const matches = searchText.includes(searchTerm);
+                item.style.display = matches ? 'flex' : 'none';
+            });
+        });
+    }
+    
+    // 开锁按钮点击事件
+    document.querySelectorAll('.unlock-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const deviceId = this.dataset.deviceId;
+            const originalHTML = this.innerHTML;
+            
+            // 禁用按钮并显示加载状态
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            // 发送开锁请求
+            fetch(`/unlock_device/${deviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage('success', data.message);
+                        // 短暂延迟后恢复按钮
+                        setTimeout(() => {
+                            this.disabled = false;
+                            this.innerHTML = originalHTML;
+                        }, 2000);
+                    } else {
+                        showMessage('error', data.message);
+                        this.disabled = false;
+                        this.innerHTML = originalHTML;
+                    }
+                })
+                .catch(error => {
+                    showMessage('error', '网络错误: ' + error.message);
+                    this.disabled = false;
+                    this.innerHTML = originalHTML;
+                });
+        });
+    });
+});
+
+function showMessage(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show custom-alert" role="alert">
+            <i class="fas ${iconClass}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    const container = document.querySelector('.messages-container') || (() => {
+        const div = document.createElement('div');
+        div.className = 'messages-container';
+        document.body.appendChild(div);
+        return div;
+    })();
+    
+    container.innerHTML = alertHTML;
+    
+    // 自动关闭消息
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 

@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block title %}仪表板 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}仪表板{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('add_device') }}" class="btn btn-primary btn-sm">
+    <i class="fas fa-plus"></i>
+    <span class="d-none d-sm-inline">添加设备</span>
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- 统计概览 -->
+    <div class="mb-5">
+        <div class="row g-4">
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card h-100">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <div class="bg-primary bg-opacity-10 p-3 rounded-lg">
+                                    <i class="fas fa-microchip text-primary fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="h4 mb-1 fw-bold">{{ device_count }}</div>
+                                <div class="text-muted small">设备总数</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card h-100">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <div class="bg-success bg-opacity-10 p-3 rounded-lg">
+                                    <i class="fas fa-check-circle text-success fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="h4 mb-1 fw-bold">{{ online_count }}</div>
+                                <div class="text-muted small">在线设备</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card h-100">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <div class="bg-{{ 'success' if mqtt_connected else 'warning' }} bg-opacity-10 p-3 rounded-lg">
+                                    <i class="fas fa-{{ 'wifi' if mqtt_connected else 'wifi-slash' }} text-{{ 'success' if mqtt_connected else 'warning' }} fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="h5 mb-1 fw-bold">{{ '已连接' if mqtt_connected else '未连接' }}</div>
+                                <div class="text-muted small">MQTT状态</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card h-100">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <div class="bg-{{ 'success' if mqtt_enabled else 'danger' }} bg-opacity-10 p-3 rounded-lg">
+                                    <i class="fas fa-{{ 'toggle-on' if mqtt_enabled else 'toggle-off' }} text-{{ 'success' if mqtt_enabled else 'danger' }} fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="h5 mb-1 fw-bold">{{ '已启用' if mqtt_enabled else '已禁用' }}</div>
+                                <div class="text-muted small">MQTT服务</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 快速操作区域 -->
+    <div class="row g-4 mb-5">
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-body p-4">
+                    <h5 class="card-title mb-3">
+                        <i class="fas fa-eye text-primary me-2"></i>
+                        可见设备
+                    </h5>
+                    <p class="text-muted mb-3">管理和控制已配置的可见设备</p>
+                    <a href="{{ url_for('visible_devices') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-right me-2"></i>
+                        访问可见设备
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-body p-4">
+                    <h5 class="card-title mb-3">
+                        <i class="fas fa-cog text-primary me-2"></i>
+                        设备配置
+                    </h5>
+                    <p class="text-muted mb-3">配置设备可见性和MQTT同步</p>
+                    <a href="{{ url_for('manage_visible_devices') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-right me-2"></i>
+                        管理设备配置
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 最近设备 -->
+    {% if devices %}
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-history text-primary me-2"></i>
+                最近设备
+            </h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>设备名称</th>
+                            <th>位置</th>
+                            <th>IP地址</th>
+                            <th>状态</th>
+                            <th class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for device in devices[:5] %}
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-primary bg-opacity-10 p-2 rounded me-3">
+                                        <i class="fas fa-door-open text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-semibold">{{ device.name }}</div>
+                                        <div class="text-muted small">{{ device.group_name }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge badge-secondary">{{ device.section_number }}区{{ device.building_number }}幢</span>
+                                {% if device.position %}
+                                <span class="badge badge-primary">{{ device.position }}号</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <code class="small">{{ device.ip }}</code>
+                            </td>
+                            <td>
+                                <span class="badge badge-{{ 'success' if device.status == 'online' else 'secondary' }}">
+                                    {{ '在线' if device.status == 'online' else '离线' }}
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-success unlock-btn" data-device-id="{{ device.id }}" title="开锁">
+                                        <i class="fas fa-unlock"></i>
+                                    </button>
+                                    <a href="{{ url_for('edit_device', device_id=device.id, return_to='dashboard') }}" class="btn btn-outline-primary" title="编辑">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-transparent">
+            <div class="text-center">
+                <a href="{{ url_for('devices') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-list me-2"></i>
+                    查看所有设备
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+        <div class="empty-icon mb-4">
+            <i class="fas fa-microchip"></i>
+        </div>
+        <h3 class="mb-3">暂无设备</h3>
+        <p class="text-muted mb-4">开始添加您的第一个VTO设备</p>
+        <a href="{{ url_for('add_device') }}" class="btn btn-primary">
+            <i class="fas fa-plus me-2"></i>
+            添加设备
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 开锁按钮点击事件
+    document.querySelectorAll('.unlock-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const deviceId = this.dataset.deviceId;
+            const originalHTML = this.innerHTML;
+            
+            // 禁用按钮并显示加载状态
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            // 发送开锁请求
+            fetch(`/unlock_device/${deviceId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage('success', data.message);
+                        // 短暂延迟后恢复按钮
+                        setTimeout(() => {
+                            this.disabled = false;
+                            this.innerHTML = originalHTML;
+                        }, 2000);
+                    } else {
+                        showMessage('error', data.message);
+                        this.disabled = false;
+                        this.innerHTML = originalHTML;
+                    }
+                })
+                .catch(error => {
+                    showMessage('error', '网络错误: ' + error.message);
+                    this.disabled = false;
+                    this.innerHTML = originalHTML;
+                });
+        });
+    });
+});
+
+function showMessage(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show custom-alert" role="alert">
+            <i class="fas ${iconClass}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    const container = document.querySelector('.messages-container') || (() => {
+        const div = document.createElement('div');
+        div.className = 'messages-container';
+        document.body.appendChild(div);
+        return div;
+    })();
+    
+    container.innerHTML = alertHTML;
+    
+    // 自动关闭消息
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 

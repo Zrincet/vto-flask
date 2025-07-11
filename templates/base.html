@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}VTO设备管理系统{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% if session.user_id %}
+        <!-- 移动端顶部导航栏 -->
+        <nav class="mobile-navbar d-lg-none">
+            <div class="mobile-navbar-content">
+                <div class="mobile-navbar-brand">
+                    <i class="fas fa-door-open"></i>
+                    VTO管理系统
+                </div>
+                <button class="mobile-menu-toggle" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- 移动端侧边栏菜单 -->
+        <div class="offcanvas offcanvas-start d-lg-none" tabindex="-1" id="mobileMenu">
+            <div class="offcanvas-header">
+                <h5 class="offcanvas-title">
+                    <i class="fas fa-door-open"></i>
+                    VTO管理系统
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+            </div>
+            <div class="offcanvas-body">
+                <ul class="mobile-menu">
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('visible_devices') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'visible_devices' }}">
+                            <i class="fas fa-eye"></i>
+                            <span>可见设备</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('manage_visible_devices') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'manage_visible_devices' }}">
+                            <i class="fas fa-cog"></i>
+                            <span>设备配置</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('devices') }}" class="mobile-menu-link {{ 'active' if request.endpoint in ['devices', 'add_device', 'edit_device'] }}">
+                            <i class="fas fa-microchip"></i>
+                            <span>设备管理</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('dashboard') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'dashboard' }}">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>仪表板</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('settings') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'settings' }}">
+                            <i class="fas fa-sliders-h"></i>
+                            <span>系统设置</span>
+                        </a>
+                    </li>
+
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('user_management') }}" class="mobile-menu-link {{ 'active' if request.endpoint in ['user_management', 'add_user', 'edit_user'] }}">
+                            <i class="fas fa-users"></i>
+                            <span>用户管理</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('change_password') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'change_password' }}">
+                            <i class="fas fa-key"></i>
+                            <span>修改密码</span>
+                        </a>
+                    </li>
+                    <li class="mobile-menu-item">
+                        <a href="{{ url_for('logout') }}" class="mobile-menu-link">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>退出登录</span>
+                        </a>
+                    </li>
+                </ul>
+                <div class="mobile-user-info">
+                    <div class="mobile-user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="mobile-user-details">
+                        <span class="mobile-user-name">{{ session.username }}</span>
+                        <span class="mobile-user-role">管理员</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 桌面端侧边栏 -->
+        <nav class="desktop-sidebar d-none d-lg-block">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <i class="fas fa-door-open"></i>
+                    <span class="sidebar-brand-text">VTO管理系统</span>
+                </div>
+            </div>
+            <ul class="sidebar-menu">
+                <li class="menu-item">
+                    <a href="{{ url_for('visible_devices') }}" class="menu-link {{ 'active' if request.endpoint == 'visible_devices' }}">
+                        <i class="fas fa-eye"></i>
+                        <span>可见设备</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('manage_visible_devices') }}" class="menu-link {{ 'active' if request.endpoint == 'manage_visible_devices' }}">
+                        <i class="fas fa-cog"></i>
+                        <span>设备配置</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('devices') }}" class="menu-link {{ 'active' if request.endpoint in ['devices', 'add_device', 'edit_device'] }}">
+                        <i class="fas fa-microchip"></i>
+                        <span>设备管理</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('dashboard') }}" class="menu-link {{ 'active' if request.endpoint == 'dashboard' }}">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>仪表板</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('settings') }}" class="menu-link {{ 'active' if request.endpoint == 'settings' }}">
+                        <i class="fas fa-sliders-h"></i>
+                        <span>系统设置</span>
+                    </a>
+                </li>
+
+                <li class="menu-item">
+                    <a href="{{ url_for('user_management') }}" class="menu-link {{ 'active' if request.endpoint in ['user_management', 'add_user', 'edit_user'] }}">
+                        <i class="fas fa-users"></i>
+                        <span>用户管理</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('change_password') }}" class="menu-link {{ 'active' if request.endpoint == 'change_password' }}">
+                        <i class="fas fa-key"></i>
+                        <span>修改密码</span>
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="{{ url_for('logout') }}" class="menu-link">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>退出登录</span>
+                    </a>
+                </li>
+            </ul>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="user-name">{{ session.username }}</span>
+                        <span class="user-role">管理员</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+        {% endif %}
+
+        <!-- 主内容区域 -->
+        <main class="main-content {{ 'full-width' if not session.user_id }}">
+            {% if session.user_id %}
+            <!-- 桌面端顶部导航 -->
+            <header class="topbar d-none d-lg-flex">
+                <div class="topbar-left">
+                    <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+                </div>
+                <div class="topbar-right">
+                    <div class="topbar-actions">
+                        {% block topbar_actions %}{% endblock %}
+                    </div>
+                </div>
+            </header>
+            {% endif %}
+
+            <!-- 消息提示 -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="messages-container">
+                    {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show custom-alert" role="alert">
+                        <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' if category == 'success' else 'info-circle' }}"></i>
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            <!-- 页面内容 -->
+            <div class="content-wrapper">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

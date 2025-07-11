@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}添加设备 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}添加设备{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('devices') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-arrow-left"></i>
+    <span class="d-none d-sm-inline">返回列表</span>
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1>添加新设备</h1>
+        <p class="page-subtitle">填写设备信息以添加新的VTO设备到系统中</p>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-plus-circle text-primary me-2"></i>
+                设备信息
+            </h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" class="device-form">
+                <!-- 基本信息 -->
+                <div class="mb-4">
+                    <h6 class="text-primary mb-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        基本信息
+                    </h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="name" class="form-label">设备名称 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="name" name="name" placeholder="为设备指定一个易于识别的名称" required>
+                                <div class="form-text">建议使用区域+楼栋+位置的格式，系统会自动生成</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="group_name" class="form-label">分组 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="group_name" name="group_name" placeholder="设备分组名称" required>
+                                <div class="form-text">用于管理和分类设备，建议按区域命名</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 位置信息 -->
+                <div class="mb-4">
+                    <h6 class="text-primary mb-3">
+                        <i class="fas fa-map-marker-alt me-2"></i>
+                        位置信息
+                    </h6>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="section_number" class="form-label">区域编号 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="section_number" name="section_number" placeholder="例如：01" required>
+                                <div class="form-text">两位数字编号</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="building_number" class="form-label">楼栋编号 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="building_number" name="building_number" placeholder="例如：001" required>
+                                <div class="form-text">三位数字编号</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="position" class="form-label">位置编号</label>
+                                <input type="text" class="form-control" id="position" name="position" placeholder="例如：1">
+                                <div class="form-text">门禁位置编号（可选）</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 网络配置 -->
+                <div class="mb-4">
+                    <h6 class="text-primary mb-3">
+                        <i class="fas fa-network-wired me-2"></i>
+                        网络配置
+                    </h6>
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label for="ip" class="form-label">IP地址 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="ip" name="ip" pattern="^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$" placeholder="例如：172.16.11.4" required>
+                                <div class="form-text">设备的网络IP地址，MQTT主题将根据IP自动生成</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 认证信息 -->
+                <div class="mb-4">
+                    <h6 class="text-primary mb-3">
+                        <i class="fas fa-user-shield me-2"></i>
+                        认证信息
+                    </h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="username" class="form-label">用户名</label>
+                                <input type="text" class="form-control" id="username" name="username" value="admin" placeholder="设备登录用户名">
+                                <div class="form-text">设备管理界面的登录用户名</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="password" class="form-label">密码</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="password" name="password" value="admin123" placeholder="设备登录密码">
+                                    <button type="button" class="btn btn-outline-secondary" id="togglePassword">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                                <div class="form-text">设备管理界面的登录密码</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 提示信息 -->
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>注意：</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>设备名称会根据位置信息自动生成，格式为"区域区楼栋幢位置号"</li>
+                        <li>MQTT主题会根据IP地址自动生成，格式为"vto + IP去除点 + 006"</li>
+                        <li>新添加的设备默认为隐藏状态，需要在设备配置页面设置为可见</li>
+                    </ul>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>
+                        添加设备
+                    </button>
+                    <a href="{{ url_for('devices') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-times me-2"></i>
+                        取消
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 自动聚焦设备名称输入框
+    document.getElementById('name').focus();
+    
+    // 密码显示/隐藏切换
+    const passwordInput = document.getElementById('password');
+    const toggleButton = document.getElementById('togglePassword');
+    
+    toggleButton.addEventListener('click', function() {
+        const type = passwordInput.type === 'password' ? 'text' : 'password';
+        passwordInput.type = type;
+        
+        const icon = this.querySelector('i');
+        icon.className = type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
+    });
+    
+    // IP地址格式验证
+    const ipInput = document.getElementById('ip');
+    ipInput.addEventListener('input', function() {
+        const ipPattern = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+        if (this.value && !ipPattern.test(this.value)) {
+            this.setCustomValidity('请输入有效的IP地址');
+            this.classList.add('is-invalid');
+        } else {
+            this.setCustomValidity('');
+            this.classList.remove('is-invalid');
+        }
+    });
+    
+    // 区域编号格式验证
+    const sectionInput = document.getElementById('section_number');
+    sectionInput.addEventListener('input', function() {
+        // 自动补零到两位
+        if (this.value.length === 1 && !isNaN(this.value)) {
+            this.value = '0' + this.value;
+        }
+        
+        // 验证格式
+        if (this.value && !/^\d{2}$/.test(this.value)) {
+            this.setCustomValidity('请输入两位数字');
+            this.classList.add('is-invalid');
+        } else {
+            this.setCustomValidity('');
+            this.classList.remove('is-invalid');
+        }
+    });
+    
+    // 楼栋编号格式验证
+    const buildingInput = document.getElementById('building_number');
+    buildingInput.addEventListener('input', function() {
+        // 自动补零到三位
+        if (this.value.length === 1 && !isNaN(this.value)) {
+            this.value = '00' + this.value;
+        } else if (this.value.length === 2 && !isNaN(this.value)) {
+            this.value = '0' + this.value;
+        }
+        
+        // 验证格式
+        if (this.value && !/^\d{3}$/.test(this.value)) {
+            this.setCustomValidity('请输入三位数字');
+            this.classList.add('is-invalid');
+        } else {
+            this.setCustomValidity('');
+            this.classList.remove('is-invalid');
+        }
+    });
+    
+    // 表单提交前验证
+    document.querySelector('.device-form').addEventListener('submit', function(e) {
+        const name = document.getElementById('name').value.trim();
+        const group = document.getElementById('group_name').value.trim();
+        const ip = document.getElementById('ip').value.trim();
+        const section = document.getElementById('section_number').value.trim();
+        const building = document.getElementById('building_number').value.trim();
+        
+        if (!name || !group || !ip || !section || !building) {
+            e.preventDefault();
+            showMessage('error', '请填写所有必填字段');
+            return false;
+        }
+        
+        // 显示提交状态
+        const submitBtn = this.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>添加中...';
+    });
+});
+
+function showMessage(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show custom-alert" role="alert">
+            <i class="fas ${iconClass}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    const container = document.querySelector('.messages-container') || (() => {
+        const div = document.createElement('div');
+        div.className = 'messages-container';
+        document.body.appendChild(div);
+        return div;
+    })();
+    
+    container.innerHTML = alertHTML;
+    
+    // 自动关闭消息
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 

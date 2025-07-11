@@ -1,0 +1,558 @@
+{% extends "base.html" %}
+
+{% block title %}管理可见设备 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}管理可见设备{% endblock %}
+
+{% block topbar_actions %}
+<div class="btn-group">
+    <button type="button" class="btn btn-primary btn-sm" id="saveBtn">
+        <i class="fas fa-save"></i>
+        <span class="d-none d-sm-inline">保存设置</span>
+    </button>
+    <a href="{{ url_for('visible_devices') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-arrow-left"></i>
+        <span class="d-none d-sm-inline">返回</span>
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="manage-devices-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+        <h1>管理可见设备</h1>
+        <p class="page-subtitle">选择需要在主页显示和控制的设备</p>
+    </div>
+    
+    <!-- 筛选和搜索 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="sectionFilter" class="form-label">区域筛选</label>
+                    <select id="sectionFilter" class="form-select">
+                        <option value="">全部区域</option>
+                        {% for section in sections.keys() %}
+                        <option value="{{ section }}">{{ section }}区</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="buildingFilter" class="form-label">楼栋筛选</label>
+                    <select id="buildingFilter" class="form-select">
+                        <option value="">全部楼栋</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="deviceSearchInput" class="form-label">搜索设备</label>
+                    <input type="text" class="form-control" id="deviceSearchInput" placeholder="搜索设备名称、IP地址...">
+                </div>
+            </div>
+            
+            <div class="row g-2 mt-3">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="selectAllBtn">
+                        <i class="fas fa-check-square"></i>
+                        全选
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBtn">
+                        <i class="fas fa-square"></i>
+                        全不选
+                    </button>
+                </div>
+                <div class="col-auto ms-auto">
+                    <div class="alert alert-info mb-0 py-2 px-3 d-inline-block">
+                        <i class="fas fa-info-circle"></i>
+                        <span id="selectionCount">已选择 <strong>{{ visible_device_ids|length }}</strong> 个设备</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 设备选择区域 -->
+    <div class="device-selection-area">
+        {% for section, buildings in sections.items() %}
+        <div class="section-group" data-section="{{ section }}">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-map-marker-alt text-primary"></i>
+                        {{ section }}区
+                        <span class="badge bg-secondary ms-2 section-count"></span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% for building, devices in buildings.items() %}
+                    <div class="building-group mb-4" data-building="{{ building }}">
+                        <h6 class="building-header text-muted mb-3">
+                            <i class="fas fa-building"></i>
+                            {{ building }}幢
+                            <span class="building-count">({{ devices|length }}个设备)</span>
+                        </h6>
+                        
+                        <div class="devices-grid">
+                            {% for device in devices %}
+                            <div class="device-item" data-device-id="{{ device.id }}" 
+                                 data-section="{{ device.section_number }}" 
+                                 data-building="{{ device.building_number }}"
+                                 data-search-text="{{ device.name }} {{ device.ip }}">
+                                <div class="device-card">
+                                    <div class="device-checkbox">
+                                        <input type="checkbox" class="form-check-input" id="device_{{ device.id }}" value="{{ device.id }}" 
+                                               {{ 'checked' if device.id in visible_device_ids else '' }}>
+                                    </div>
+                                    
+                                    <div class="device-info">
+                                        <div class="device-primary">
+                                            <label for="device_{{ device.id }}" class="device-name">{{ device.name }}</label>
+                                            <span class="device-status">
+                                                <i class="fas fa-circle {{ 'text-success' if device.status == 'online' else 'text-secondary' }}"></i>
+                                                {{ '在线' if device.status == 'online' else '离线' }}
+                                            </span>
+                                        </div>
+                                        
+                                        <div class="device-secondary">
+                                            <div class="device-details">
+                                                <small class="text-muted">
+                                                    <i class="fas fa-network-wired"></i>
+                                                    {{ device.ip }}
+                                                </small>
+                                                {% if device.position %}
+                                                <small class="text-muted">
+                                                    <i class="fas fa-map-pin"></i>
+                                                    {{ device.position }}号
+                                                </small>
+                                                {% endif %}
+                                            </div>
+                                            {% if device.mqtt_topic %}
+                                            <div class="mqtt-topic">
+                                                <small class="text-muted">
+                                                    <i class="fas fa-satellite-dish"></i>
+                                                    {{ device.mqtt_topic }}
+                                                </small>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- 固定底部操作栏 -->
+    <div class="fixed-bottom-bar">
+        <div class="container-fluid">
+            <div class="row align-items-center">
+                <div class="col">
+                    <span id="selectionCountMobile">已选择 <strong>{{ visible_device_ids|length }}</strong> 个设备</span>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="saveBtnMobile">
+                        <i class="fas fa-save"></i>
+                        保存设置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.manage-devices-container {
+    padding-bottom: 100px; /* 为固定底部栏留空间 */
+}
+
+.devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.device-item {
+    display: block;
+}
+
+.device-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.device-card:hover {
+    border-color: #2563eb;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+}
+
+.device-card:has(input:checked) {
+    border-color: #2563eb;
+    background-color: #eff6ff;
+}
+
+.device-checkbox {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+}
+
+.device-checkbox input {
+    width: 18px;
+    height: 18px;
+}
+
+.device-info {
+    margin-right: 2rem;
+}
+
+.device-primary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.device-name {
+    font-weight: 600;
+    color: #1f2937;
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+.device-status {
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.device-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.device-details {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.mqtt-topic {
+    font-family: monospace;
+    font-size: 0.75rem;
+}
+
+.section-count {
+    font-size: 0.75rem;
+}
+
+.building-header {
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.fixed-bottom-bar {
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    padding: 1rem 0;
+    display: none;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .devices-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    
+    .device-card {
+        padding: 0.75rem;
+    }
+    
+    .device-details {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .fixed-bottom-bar {
+        display: block;
+    }
+    
+    .card-body .row:last-child {
+        display: none;
+    }
+    
+    .section-group .card {
+        margin-bottom: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .device-primary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .device-info {
+        margin-right: 1.5rem;
+    }
+    
+    .device-checkbox {
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+    
+    .device-card {
+        padding: 0.5rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sectionFilter = document.getElementById('sectionFilter');
+    const buildingFilter = document.getElementById('buildingFilter');
+    const searchInput = document.getElementById('deviceSearchInput');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const selectNoneBtn = document.getElementById('selectNoneBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const saveBtnMobile = document.getElementById('saveBtnMobile');
+    const selectionCount = document.getElementById('selectionCount');
+    const selectionCountMobile = document.getElementById('selectionCountMobile');
+    
+    // 构建楼栋选项映射
+    const buildingOptions = {
+        {% for section, buildings in sections.items() %}
+        '{{ section }}': [{% for building in buildings.keys() %}'{{ building }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+        {% endfor %}
+    };
+    
+    // 区域筛选变化
+    sectionFilter.addEventListener('change', function() {
+        const selectedSection = this.value;
+        
+        // 更新楼栋选项
+        buildingFilter.innerHTML = '<option value="">全部楼栋</option>';
+        if (selectedSection && buildingOptions[selectedSection]) {
+            buildingOptions[selectedSection].forEach(building => {
+                const option = document.createElement('option');
+                option.value = building;
+                option.textContent = building + '幢';
+                buildingFilter.appendChild(option);
+            });
+        }
+        
+        filterDevices();
+    });
+    
+    // 楼栋筛选变化
+    buildingFilter.addEventListener('change', filterDevices);
+    
+    // 搜索输入变化
+    searchInput.addEventListener('input', filterDevices);
+    
+    // 筛选设备
+    function filterDevices() {
+        const selectedSection = sectionFilter.value;
+        const selectedBuilding = buildingFilter.value;
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        const deviceItems = document.querySelectorAll('.device-item');
+        let visibleCount = 0;
+        
+        deviceItems.forEach(item => {
+            const section = item.dataset.section;
+            const building = item.dataset.building;
+            const searchText = item.dataset.searchText.toLowerCase();
+            
+            let show = true;
+            
+            if (selectedSection && section !== selectedSection) {
+                show = false;
+            }
+            
+            if (selectedBuilding && building !== selectedBuilding) {
+                show = false;
+            }
+            
+            if (searchTerm && !searchText.includes(searchTerm)) {
+                show = false;
+            }
+            
+            item.style.display = show ? 'block' : 'none';
+            if (show) visibleCount++;
+        });
+        
+        // 更新分组显示状态
+        document.querySelectorAll('.section-group').forEach(group => {
+            const sectionValue = group.dataset.section;
+            const visibleDevices = group.querySelectorAll('.device-item[style*="block"], .device-item:not([style*="none"])');
+            group.style.display = (!selectedSection || selectedSection === sectionValue) && visibleDevices.length > 0 ? 'block' : 'none';
+        });
+        
+        document.querySelectorAll('.building-group').forEach(group => {
+            const buildingValue = group.dataset.building;
+            const visibleDevices = group.querySelectorAll('.device-item[style*="block"], .device-item:not([style*="none"])');
+            group.style.display = (!selectedBuilding || selectedBuilding === buildingValue) && visibleDevices.length > 0 ? 'block' : 'none';
+        });
+        
+        updateSectionCounts();
+    }
+    
+    // 更新分组计数
+    function updateSectionCounts() {
+        document.querySelectorAll('.section-group').forEach(group => {
+            const visibleDevices = group.querySelectorAll('.device-item[style*="block"], .device-item:not([style*="none"])');
+            const countElement = group.querySelector('.section-count');
+            if (countElement) {
+                countElement.textContent = visibleDevices.length + '个设备';
+            }
+        });
+    }
+    
+    // 全选按钮
+    selectAllBtn.addEventListener('click', function() {
+        const visibleCheckboxes = Array.from(document.querySelectorAll('.device-item:not([style*="none"]) input[type="checkbox"]'));
+        visibleCheckboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        updateSelectionCount();
+    });
+    
+    // 全不选按钮
+    selectNoneBtn.addEventListener('click', function() {
+        const visibleCheckboxes = Array.from(document.querySelectorAll('.device-item:not([style*="none"]) input[type="checkbox"]'));
+        visibleCheckboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        updateSelectionCount();
+    });
+    
+    // 复选框变化事件
+    document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectionCount);
+    });
+    
+    // 设备卡片点击事件
+    document.querySelectorAll('.device-card').forEach(card => {
+        card.addEventListener('click', function(e) {
+            if (e.target.type !== 'checkbox' && e.target.tagName !== 'LABEL') {
+                const checkbox = this.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                updateSelectionCount();
+            }
+        });
+    });
+    
+    // 更新选择计数
+    function updateSelectionCount() {
+        const checked = document.querySelectorAll('input[type="checkbox"]:checked').length;
+        const countText = `已选择 <strong>${checked}</strong> 个设备`;
+        selectionCount.innerHTML = countText;
+        if (selectionCountMobile) {
+            selectionCountMobile.innerHTML = countText;
+        }
+    }
+    
+    // 保存按钮事件
+    function handleSave() {
+        const selectedDeviceIds = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(checkbox => parseInt(checkbox.value));
+        
+        // 禁用按钮
+        saveBtn.disabled = true;
+        saveBtnMobile.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+        saveBtnMobile.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+        
+        fetch('/update_visible_devices', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                device_ids: selectedDeviceIds
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage('success', data.message);
+                // 延迟跳转
+                setTimeout(() => {
+                    window.location.href = '/visible_devices';
+                }, 1500);
+            } else {
+                showMessage('error', data.message);
+            }
+        })
+        .catch(error => {
+            showMessage('error', '网络错误: ' + error.message);
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtnMobile.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> <span class="d-none d-sm-inline">保存设置</span>';
+            saveBtnMobile.innerHTML = '<i class="fas fa-save"></i> 保存设置';
+        });
+    }
+    
+    saveBtn.addEventListener('click', handleSave);
+    saveBtnMobile.addEventListener('click', handleSave);
+    
+    // 初始化
+    updateSelectionCount();
+    updateSectionCounts();
+});
+
+function showMessage(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas ${iconClass}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    // 找到或创建消息容器
+    let container = document.querySelector('.alert-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'alert-container';
+        container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 1050; max-width: 400px;';
+        document.body.appendChild(container);
+    }
+    
+    container.innerHTML = alertHTML;
+    
+    // 自动关闭消息
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 
