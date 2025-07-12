@@ -664,6 +664,23 @@ class BemfaAPI:
         except Exception as e:
             logger.error(f"发送巴法云状态消息失败: {str(e)}")
             return {"code": -1, "message": str(e)}
+    
+    def delete_topic(self, uid, topic, type=1):
+        """删除主题"""
+        try:
+            url = f"{self.pro_url}/v1/deleteTopic"
+            data = {
+                "uid": uid,
+                "topic": topic,
+                "type": type  # 1=MQTT协议设备, 3=TCP协议设备, 5=MQTT协议设备V2版本, 7=TCP协议设备V2版本
+            }
+            
+            headers = {"Content-Type": "application/json; charset=utf-8"}
+            response = requests.post(url, json=data, headers=headers)
+            return response.json()
+        except Exception as e:
+            logger.error(f"删除巴法云主题失败: {str(e)}")
+            return {"code": -1, "message": str(e)}
 
 # 全局巴法云API管理器
 bemfa_api = BemfaAPI()
@@ -1057,15 +1074,18 @@ def add_bemfa_key_api():
                     if sync_result:
                         created_count = sync_result.get('created_count', 0)
                         updated_count = sync_result.get('updated_count', 0)
+                        deleted_count = sync_result.get('deleted_count', 0)
                         
-                        if created_count > 0 or updated_count > 0:
+                        if created_count > 0 or updated_count > 0 or deleted_count > 0:
                             message = f'巴法云密钥 {name} 添加成功'
                             if created_count > 0:
                                 message += f'，同步创建了 {created_count} 个设备主题'
                             if updated_count > 0:
                                 message += f'，更新了 {updated_count} 个设备昵称'
+                            if deleted_count > 0:
+                                message += f'，删除了 {deleted_count} 个多余主题'
                             
-                            logger.info(f"新密钥 {name} 设备同步完成: 创建 {created_count}, 更新 {updated_count}")
+                            logger.info(f"新密钥 {name} 设备同步完成: 创建 {created_count}, 更新 {updated_count}, 删除 {deleted_count}")
                         else:
                             message = f'巴法云密钥 {name} 添加成功，设备主题已同步'
                     else:
@@ -1136,13 +1156,16 @@ def edit_bemfa_key_api(key_id):
                     if sync_result:
                         created_count = sync_result.get('created_count', 0)
                         updated_count = sync_result.get('updated_count', 0)
+                        deleted_count = sync_result.get('deleted_count', 0)
                         
-                        if created_count > 0 or updated_count > 0:
+                        if created_count > 0 or updated_count > 0 or deleted_count > 0:
                             message = f'巴法云密钥 {name} 更新成功'
                             if created_count > 0:
                                 message += f'，同步创建了 {created_count} 个设备主题'
                             if updated_count > 0:
                                 message += f'，更新了 {updated_count} 个设备昵称'
+                            if deleted_count > 0:
+                                message += f'，删除了 {deleted_count} 个多余主题'
                         else:
                             message = f'巴法云密钥 {name} 更新成功，设备主题已同步'
                     else:
@@ -1211,13 +1234,16 @@ def toggle_bemfa_key_api(key_id):
                     if sync_result:
                         created_count = sync_result.get('created_count', 0)
                         updated_count = sync_result.get('updated_count', 0)
+                        deleted_count = sync_result.get('deleted_count', 0)
                         
-                        if created_count > 0 or updated_count > 0:
+                        if created_count > 0 or updated_count > 0 or deleted_count > 0:
                             message = f'巴法云密钥 {bemfa_key.name} 已{status}'
                             if created_count > 0:
                                 message += f'，同步创建了 {created_count} 个设备主题'
                             if updated_count > 0:
                                 message += f'，更新了 {updated_count} 个设备昵称'
+                            if deleted_count > 0:
+                                message += f'，删除了 {deleted_count} 个多余主题'
                         else:
                             message = f'巴法云密钥 {bemfa_key.name} 已{status}，设备主题已同步'
                     else:
@@ -1284,15 +1310,18 @@ def sync_bemfa_devices():
         if result:
             created_count = result.get('created_count', 0)
             updated_count = result.get('updated_count', 0)
+            deleted_count = result.get('deleted_count', 0)
             failed_count = result.get('failed_count', 0)
             accounts = result.get('accounts', [])
             
-            if created_count > 0 or updated_count > 0:
+            if created_count > 0 or updated_count > 0 or deleted_count > 0:
                 message_parts = []
                 if created_count > 0:
                     message_parts.append(f"创建 {created_count} 个主题")
                 if updated_count > 0:
                     message_parts.append(f"更新 {updated_count} 个昵称")
+                if deleted_count > 0:
+                    message_parts.append(f"删除 {deleted_count} 个多余主题")
                 
                 message = f"同步成功：{', '.join(message_parts)}"
                 if failed_count > 0:
@@ -1302,7 +1331,7 @@ def sync_bemfa_devices():
                 if len(accounts) > 1:
                     message += f"（共 {len(accounts)} 个账号）"
             elif failed_count > 0:
-                message = f"同步失败：{failed_count} 个主题创建失败"
+                message = f"同步失败：{failed_count} 个主题操作失败"
             else:
                 message = "所有设备主题都已同步，无需更新"
         else:
@@ -1580,12 +1609,24 @@ def sync_visible_devices_to_bemfa():
         old_bemfa_key = Config.query.filter_by(key='bemfa_private_key').first()
         if old_bemfa_key and old_bemfa_key.value:
             logger.info("使用旧的巴法云私钥配置")
-            return sync_single_bemfa_account(old_bemfa_key.value)
+            result = sync_single_bemfa_account(old_bemfa_key.value)
+            # 为了保持返回格式一致，添加accounts字段
+            result['accounts'] = [{
+                'name': '默认账号',
+                'key': old_bemfa_key.value[:8] + '...',
+                'created': result['created_count'],
+                'updated': result['updated_count'],
+                'deleted': result['deleted_count'],
+                'failed': result['failed_count'],
+                'success': True
+            }]
+            return result
         else:
             logger.warning("未配置巴法云私钥，跳过同步")
             return {
                 'created_count': 0,
                 'updated_count': 0,
+                'deleted_count': 0,
                 'failed_count': 0,
                 'total_devices': 0,
                 'accounts': []
@@ -1597,6 +1638,7 @@ def sync_visible_devices_to_bemfa():
         return {
             'created_count': 0,
             'updated_count': 0,
+            'deleted_count': 0,
             'failed_count': 0,
             'total_devices': 0,
             'accounts': []
@@ -1605,6 +1647,7 @@ def sync_visible_devices_to_bemfa():
     # 对所有启用的巴法云账号执行同步
     total_created = 0
     total_updated = 0
+    total_deleted = 0
     total_failed = 0
     account_results = []
     
@@ -1617,11 +1660,13 @@ def sync_visible_devices_to_bemfa():
                 'key': bemfa_key.key[:8] + '...',  # 只显示前8位
                 'created': result['created_count'],
                 'updated': result['updated_count'],
+                'deleted': result['deleted_count'],
                 'failed': result['failed_count'],
                 'success': True
             })
             total_created += result['created_count']
             total_updated += result['updated_count']
+            total_deleted += result['deleted_count']
             total_failed += result['failed_count']
         except Exception as e:
             logger.error(f"同步到巴法云账号 {bemfa_key.name} 失败: {str(e)}")
@@ -1630,16 +1675,18 @@ def sync_visible_devices_to_bemfa():
                 'key': bemfa_key.key[:8] + '...',
                 'created': 0,
                 'updated': 0,
+                'deleted': 0,
                 'failed': 0,
                 'success': False,
                 'error': str(e)
             })
     
-    logger.info(f"多账号同步完成：总创建 {total_created}，总更新 {total_updated}，总失败 {total_failed}")
+    logger.info(f"多账号同步完成：总创建 {total_created}，总更新 {total_updated}，总删除 {total_deleted}，总失败 {total_failed}")
     
     return {
         'created_count': total_created,
         'updated_count': total_updated,
+        'deleted_count': total_deleted,
         'failed_count': total_failed,
         'total_devices': len(visible_devices),
         'accounts': account_results
@@ -1659,6 +1706,34 @@ def sync_single_bemfa_account(bemfa_key_value):
             for topic_data in topics_response.get("data", []):
                 existing_topics.add(topic_data["topic"])
                 topic_names[topic_data["topic"]] = topic_data.get("name", "")
+        
+        # 获取当前需要同步的设备主题
+        current_device_topics = set()
+        for device in visible_devices:
+            topic = device.mqtt_topic
+            if topic:
+                current_device_topics.add(topic)
+        
+        # 查找需要删除的主题（以vto开头但不在当前设备列表中）
+        topics_to_delete = []
+        for existing_topic in existing_topics:
+            if existing_topic.startswith('vto') and existing_topic not in current_device_topics:
+                topics_to_delete.append(existing_topic)
+        
+        # 删除不需要的vto主题
+        deleted_count = 0
+        for topic in topics_to_delete:
+            delete_response = bemfa_api.delete_topic(
+                uid=bemfa_key_value,
+                topic=topic,
+                type=1  # MQTT协议设备
+            )
+            
+            if delete_response.get("code") == 0:
+                logger.info(f"成功删除多余的主题 {topic}")
+                deleted_count += 1
+            else:
+                logger.error(f"删除主题 {topic} 失败: {delete_response.get('message', '未知错误')}")
         
         # 需要创建和更新的主题
         topics_to_create = []
@@ -1708,6 +1783,7 @@ def sync_single_bemfa_account(bemfa_key_value):
         return {
             'created_count': created_count,
             'updated_count': updated_count,
+            'deleted_count': deleted_count,
             'failed_count': failed_count,
             'total_devices': len(visible_devices)
         }
