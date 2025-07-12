@@ -825,14 +825,26 @@ def update_visible_devices():
         if mqtt_manager.is_running:
             logger.info("可见设备更新，重新连接MQTT服务...")
             try:
-                # 获取当前MQTT配置
-                bemfa_key_config = Config.query.filter_by(key='bemfa_private_key').first()
-                if bemfa_key_config and bemfa_key_config.value:
-                    # 停止当前连接
+                # 检查是否有启用的巴法云密钥
+                enabled_keys = BemfaKey.query.filter_by(enabled=True).all()
+                
+                if enabled_keys:
+                    # 停止当前所有连接
                     mqtt_manager.stop_mqtt_service()
-                    # 重新启动连接
-                    mqtt_manager.start_mqtt_service("bemfa.com", 9501, bemfa_key_config.value)
+                    # 重新启动所有启用的客户端连接
+                    mqtt_manager.start_all_clients()
                     logger.info("MQTT服务重新连接成功")
+                else:
+                    # 如果没有启用的密钥，检查是否有旧的配置作为回退
+                    bemfa_key_config = Config.query.filter_by(key='bemfa_private_key').first()
+                    if bemfa_key_config and bemfa_key_config.value:
+                        # 停止当前连接
+                        mqtt_manager.stop_mqtt_service()
+                        # 使用旧配置重新启动连接
+                        mqtt_manager.start_mqtt_service("bemfa.com", 9501, bemfa_key_config.value)
+                        logger.info("MQTT服务使用旧配置重新连接成功")
+                    else:
+                        logger.warning("没有可用的巴法云密钥配置，无法重新连接MQTT服务")
             except Exception as mqtt_error:
                 logger.error(f"重新连接MQTT服务失败: {str(mqtt_error)}")
         
