@@ -1909,4 +1909,4 @@ if __name__ == '__main__':
     init_db()
     # 启动延迟MQTT初始化
     delayed_mqtt_init()
-    app.run(host='0.0.0.0', port=8998, debug=True) 
+    app.run(host='0.0.0.0', port=8998, debug=False) 
