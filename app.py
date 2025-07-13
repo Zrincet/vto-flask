@@ -2489,22 +2489,17 @@ def delayed_mqtt_init():
     """延迟启动MQTT服务，确保应用完全启动后再连接"""
     import threading
     import time
-    
-    # 检查是否是Flask的重载进程（调试模式下会重启应用）
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or True:
-        # 这是主进程，启动MQTT服务
-        def start_mqtt():
-            # 等待3秒让应用完全启动
-            time.sleep(3)
-            with app.app_context():
-                init_mqtt_service()
-        
-        # 在后台线程中启动
-        mqtt_thread = threading.Thread(target=start_mqtt, daemon=True)
-        mqtt_thread.start()
-    else:
-        # 这是重载进程，不启动MQTT服务
-        logger.info("检测到Flask重载进程，跳过MQTT服务启动")
+
+    # 这是主进程，启动MQTT服务
+    def start_mqtt():
+        # 等待3秒让应用完全启动
+        time.sleep(3)
+        with app.app_context():
+            init_mqtt_service()
+
+    # 在后台线程中启动
+    mqtt_thread = threading.Thread(target=start_mqtt, daemon=True)
+    mqtt_thread.start()
 
 # 初始化数据库
 def init_db():
