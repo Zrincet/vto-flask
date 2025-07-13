@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, Response
 from flask_sqlalchemy import SQLAlchemy
-from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
@@ -15,6 +14,10 @@ import signal
 import base64
 from datetime import datetime
 import logging
+import asyncio
+import websockets
+from concurrent.futures import ThreadPoolExecutor
+import queue
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -22,7 +25,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vto_management.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -688,13 +690,15 @@ class BemfaAPI:
             return {"code": -1, "message": str(e)}
 
 class VideoStreamManager:
-    """视频流管理器"""
+    """FLV视频流管理器 - 支持WebSocket传输"""
     
     def __init__(self):
         self.active_streams = {}  # 存储活跃的视频流进程
         self.stream_lock = threading.Lock()
         self.thumbnail_cache = {}  # 缩略图缓存
         self.thumbnail_dir = os.path.join(app.static_folder, 'thumbnails')
+        self.websocket_clients = {}  # WebSocket客户端连接
+        self.executor = ThreadPoolExecutor(max_workers=10)
         
         # 确保缩略图目录存在
         os.makedirs(self.thumbnail_dir, exist_ok=True)
@@ -716,6 +720,7 @@ class VideoStreamManager:
             # 使用FFmpeg生成缩略图
             cmd = [
                 'ffmpeg', '-y',
+                '-rtsp_transport', 'tcp',
                 '-i', rtsp_url,
                 '-ss', '00:00:01',  # 跳过第一秒
                 '-vframes', '1',
@@ -763,498 +768,151 @@ class VideoStreamManager:
         # 缓存中没有或文件不存在，重新生成
         return self.generate_thumbnail(device_id)
     
-    def start_stream(self, device_id, client_id):
-        """启动JPEG图片流"""
+    def start_stream(self, device_id, websocket):
+        """启动FLV视频流"""
         try:
             device = Device.query.get(device_id)
             if not device:
                 logger.error(f"设备 {device_id} 不存在")
                 return False
             
-            stream_key = f"{device_id}_{client_id}"
-            
             with self.stream_lock:
-                if stream_key in self.active_streams:
-                    # 流已经存在，返回成功
-                    logger.info(f"JPEG图片流 {stream_key} 已存在")
-                    return True
+                if device_id in self.active_streams:
+                    # 停止旧的流
+                    self.stop_stream(device_id)
                 
                 rtsp_url = self.get_rtsp_url(device)
-                logger.info(f"正在启动JPEG图片流: 设备 {device_id}, RTSP URL: {rtsp_url}")
+                logger.info(f"启动FLV视频流: 设备 {device_id}, RTSP URL: {rtsp_url}")
                 
-                # 启动图片流进程
-                success = self._start_jpeg_stream(stream_key, rtsp_url, device_id, client_id)
-                if success:
-                    logger.info(f"JPEG图片流启动成功: 设备 {device_id}, 客户端 {client_id}")
-                    return True
-                else:
-                    logger.error(f"JPEG图片流启动失败: 设备 {device_id}")
-                    return False
+                # FFmpeg命令 - 输出FLV格式
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-rtsp_transport', 'tcp',  # 使用TCP传输，更稳定
+                    '-i', rtsp_url,
+                    '-c:v', 'libx264',         # H.264视频编码
+                    '-preset', 'ultrafast',    # 超快编码预设
+                    '-tune', 'zerolatency',    # 零延迟调优
+                    '-s', '1280x720',          # 720p分辨率
+                    '-r', '25',                # 帧率25fps
+                    '-b:v', '1000k',           # 视频码率1000kbps
+                    '-maxrate', '1000k',       # 最大码率
+                    '-bufsize', '1000k',       # 缓冲区大小
+                    '-g', '50',                # GOP大小
+                    '-c:a', 'aac',             # AAC音频编码
+                    '-b:a', '128k',            # 音频码率128kbps
+                    '-ar', '44100',            # 音频采样率
+                    '-f', 'flv',               # 输出FLV格式
+                    '-'                        # 输出到stdout
+                ]
                 
-        except Exception as e:
-            logger.error(f"启动JPEG图片流失败: {e}")
-            import traceback
-            logger.error(f"错误详情: {traceback.format_exc()}")
-            return False
-    
-    def _start_jpeg_stream(self, stream_key, rtsp_url, device_id, client_id):
-        """启动JPEG图片流和音频流"""
-        logger.info(f"开始启动JPEG图片流和音频流: {stream_key}, RTSP URL: {rtsp_url}")
-        
-        try:
-            # FFmpeg命令 - 输出MJPEG格式实现低延迟
-            jpeg_cmd = [
-                'ffmpeg', '-y',
-                '-rtsp_transport', 'tcp',  # 使用TCP传输，更稳定
-                '-i', rtsp_url,
-                '-c:v', 'mjpeg',           # MJPEG编码，低延迟
-                '-q:v', '3',               # 图片质量 (1-31，越小质量越好)
-                '-s', '1280x720',          # 720p分辨率
-                '-r', '25',                # 25fps以获得更流畅的体验
-                '-f', 'mjpeg',             # 输出MJPEG格式
-                '-'                        # 输出到stdout
-            ]
-            
-            logger.info(f"JPEG流FFmpeg命令: {' '.join(jpeg_cmd)}")
-            
-            # 启动JPEG图片流进程
-            logger.info(f"启动JPEG图片流进程: {stream_key}")
-            jpeg_process = subprocess.Popen(
-                jpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid if os.name != 'nt' else None
-            )
-            
-            logger.info(f"JPEG图片流进程启动成功: {stream_key}, PID: {jpeg_process.pid}")
-            
-            # 启动音频流进程
-            logger.info(f"准备启动音频流进程: {stream_key}")
-            audio_process = self._start_audio_stream(rtsp_url, device_id, client_id)
-            
-            if audio_process:
-                logger.info(f"音频流进程启动成功: {stream_key}, PID: {audio_process.pid}")
-            else:
-                logger.warning(f"音频流进程启动失败: {stream_key}")
-            
-            # 存储流信息
-            logger.info(f"存储流信息到active_streams: {stream_key}")
-            self.active_streams[stream_key] = {
-                'jpeg_process': jpeg_process,
-                'audio_process': audio_process,
-                'device_id': device_id,
-                'client_id': client_id,
-                'start_time': time.time()
-            }
-            
-            logger.info(f"当前活跃流数量: {len(self.active_streams)}")
-            
-            # 启动JPEG数据读取线程
-            logger.info(f"启动JPEG数据读取线程: {stream_key}")
-            threading.Thread(
-                target=self._jpeg_stream_reader,
-                args=(stream_key, jpeg_process),
-                daemon=True
-            ).start()
-            
-            logger.info(f"JPEG图片流和音频流启动完成: {stream_key}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"启动JPEG图片流失败: {stream_key}, 错误: {e}")
-            import traceback
-            logger.error(f"错误详情: {traceback.format_exc()}")
-            return False
-    
-    def _start_audio_stream(self, rtsp_url, device_id, client_id):
-        """启动音频流"""
-        stream_key = f"{device_id}_{client_id}"
-        logger.info(f"开始启动音频流: {stream_key}, RTSP URL: {rtsp_url}")
-        
-        try:
-            # 首先检查音频流是否存在
-            logger.info(f"检查RTSP流是否包含音频: {rtsp_url}")
-            probe_cmd = [
-                'ffprobe', '-v', 'quiet', '-select_streams', 'a:0',
-                '-show_entries', 'stream=codec_name,sample_rate,channels',
-                '-of', 'csv=p=0', rtsp_url
-            ]
-            
-            try:
-                probe_result = subprocess.run(
-                    probe_cmd, 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=10
+                logger.info(f"FFmpeg命令: {' '.join(cmd)}")
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    preexec_fn=os.setsid if os.name != 'nt' else None
                 )
                 
-                if probe_result.returncode == 0 and probe_result.stdout.strip():
-                    logger.info(f"音频流检查成功: {probe_result.stdout.strip()}")
-                else:
-                    logger.warning(f"音频流检查失败或无音频流: returncode={probe_result.returncode}, stdout={probe_result.stdout}, stderr={probe_result.stderr}")
-            except subprocess.TimeoutExpired:
-                logger.warning(f"音频流检查超时: {rtsp_url}")
-            except Exception as probe_error:
-                logger.error(f"音频流检查异常: {probe_error}")
-            
-            # 简化的音频命令，使用更兼容的格式
-            audio_cmd = [
-                'ffmpeg', '-y',
-                '-rtsp_transport', 'tcp',
-                '-i', rtsp_url,
-                '-vn',                     # 不包含视频
-                '-c:a', 'pcm_s16le',       # 使用PCM格式，更稳定
-                '-ar', '22050',            # 降低采样率减少数据量
-                '-ac', '1',                # 单声道
-                '-f', 'wav',               # WAV格式，兼容性更好
-                '-'                        # 输出到stdout
-            ]
-            
-            logger.info(f"音频流FFmpeg命令: {' '.join(audio_cmd)}")
-            
-            audio_process = subprocess.Popen(
-                audio_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,  # 无缓冲，实时输出
-                preexec_fn=os.setsid if os.name != 'nt' else None
-            )
-            
-            logger.info(f"音频FFmpeg进程已启动: PID={audio_process.pid}, stream_key={stream_key}")
-            
-            # 短暂等待，检查进程是否正常启动
-            time.sleep(0.5)
-            
-            if audio_process.poll() is not None:
-                logger.error(f"音频FFmpeg进程启动后立即退出: PID={audio_process.pid}, returncode={audio_process.returncode}")
-                stderr_output = audio_process.stderr.read().decode('utf-8')
-                logger.error(f"音频FFmpeg错误输出: {stderr_output}")
-                return None
-            
-            logger.info(f"音频FFmpeg进程状态检查通过: PID={audio_process.pid}")
-            
-            # 启动音频数据读取线程
-            logger.info(f"启动音频数据读取线程: stream_key={stream_key}")
-            threading.Thread(
-                target=self._audio_stream_reader,
-                args=(stream_key, audio_process, device_id, client_id),
-                daemon=True
-            ).start()
-            
-            logger.info(f"音频流启动成功: 设备 {device_id}, 进程PID={audio_process.pid}")
-            return audio_process
-            
+                self.active_streams[device_id] = {
+                    'process': process,
+                    'websocket': websocket,
+                    'start_time': time.time()
+                }
+                
+                # 启动数据传输线程
+                self.executor.submit(self._stream_data_sender, device_id)
+                
+                logger.info(f"FLV视频流启动成功: 设备 {device_id}")
+                return True
+                
         except Exception as e:
-            logger.error(f"启动音频流失败: {e}")
+            logger.error(f"启动FLV视频流失败: {e}")
             import traceback
             logger.error(f"错误详情: {traceback.format_exc()}")
-            return None
+            return False
     
-    def stop_stream(self, device_id, client_id):
-        """停止JPEG图片流和音频流"""
-        stream_key = f"{device_id}_{client_id}"
-        
+    def stop_stream(self, device_id):
+        """停止视频流"""
         with self.stream_lock:
-            if stream_key in self.active_streams:
-                stream_info = self.active_streams[stream_key]
-                jpeg_process = stream_info.get('jpeg_process')
-                audio_process = stream_info.get('audio_process')
+            if device_id in self.active_streams:
+                stream_info = self.active_streams[device_id]
+                process = stream_info['process']
                 
-                # 先从活跃流列表中移除，停止数据读取
-                del self.active_streams[stream_key]
-                logger.info(f"已从活跃流列表移除: {stream_key}")
+                try:
+                    # 终止FFmpeg进程
+                    if os.name != 'nt':
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    else:
+                        process.terminate()
+                    
+                    # 等待进程结束
+                    process.wait(timeout=3)
+                    
+                except subprocess.TimeoutExpired:
+                    # 强制杀死进程
+                    if os.name != 'nt':
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    else:
+                        process.kill()
                 
-                # 停止JPEG进程
-                self._terminate_process(jpeg_process, "JPEG", stream_key)
-                
-                # 停止音频进程（如果存在）
-                if audio_process:
-                    self._terminate_process(audio_process, "音频", stream_key)
-                else:
-                    logger.info(f"设备 {device_id} 没有音频流进程")
-                
-                logger.info(f"停止JPEG图片流和音频流: 设备 {device_id}, 客户端 {client_id}")
+                del self.active_streams[device_id]
+                logger.info(f"停止FLV视频流: 设备 {device_id}")
                 return True
         
         return False
     
-    def _terminate_process(self, process, process_type, stream_key, timeout=2):
-        """安全地终止进程"""
-        if not process:
-            return
-            
-        try:
-            # 检查进程是否已经结束
-            if process.poll() is not None:
-                logger.info(f"{process_type}进程已经结束: {stream_key}")
-                return
-            
-            logger.info(f"正在终止{process_type}进程: {stream_key}")
-            
-            # 发送SIGTERM信号
-            if os.name != 'nt':
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            else:
-                process.terminate()
-            
-            # 等待进程结束
-            try:
-                process.wait(timeout=timeout)
-                logger.info(f"{process_type}进程正常结束: {stream_key}")
-            except subprocess.TimeoutExpired:
-                logger.warning(f"{process_type}进程在{timeout}秒内未响应，强制终止: {stream_key}")
-                # 强制杀死进程
-                if os.name != 'nt':
-                    try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass  # 进程已经不存在
-                else:
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        pass  # 进程已经不存在
-                        
-                # 再次等待确认进程结束
-                try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    logger.error(f"{process_type}进程强制终止失败: {stream_key}")
-                    
-        except Exception as e:
-            logger.error(f"终止{process_type}进程时发生异常: {e}")
-            # 尝试强制终止
-            try:
-                if os.name != 'nt':
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                else:
-                    process.kill()
-            except:
-                pass  # 忽略强制终止时的所有异常
-    
-    def _jpeg_stream_reader(self, stream_key, process):
-        """读取JPEG图片流数据并通过WebSocket发送"""
-        logger.info(f"开始读取JPEG图片流数据: {stream_key}")
+    def _stream_data_sender(self, device_id):
+        """发送FLV视频流数据到WebSocket"""
+        logger.info(f"开始发送FLV视频流数据: 设备 {device_id}")
         
         try:
-            buffer = b''
-            frame_count = 0
+            stream_info = self.active_streams[device_id]
+            process = stream_info['process']
+            websocket = stream_info['websocket']
             
-            while stream_key in self.active_streams:
-                # 读取数据块
+            chunk_count = 0
+            while device_id in self.active_streams:
+                # 读取FLV数据块
                 chunk = process.stdout.read(8192)
                 if not chunk:
-                    logger.info(f"JPEG图片流数据读取完毕: {stream_key}")
+                    logger.info(f"FLV视频流数据读取完毕: 设备 {device_id}")
                     break
                 
-                buffer += chunk
+                chunk_count += 1
+                if chunk_count % 100 == 0:  # 每100个数据包记录一次
+                    logger.info(f"已发送 {chunk_count} 个FLV数据包: 设备 {device_id}")
                 
                 # 检查FFmpeg进程状态
                 if process.poll() is not None:
-                    logger.warning(f"FFmpeg进程已结束: {stream_key}, 返回码: {process.returncode}")
+                    logger.warning(f"FFmpeg进程已结束: 设备 {device_id}, 返回码: {process.returncode}")
+                    # 读取错误信息
                     stderr_output = process.stderr.read().decode('utf-8')
                     if stderr_output:
                         logger.error(f"FFmpeg错误输出: {stderr_output}")
                     break
                 
-                # 寻找JPEG图片边界
-                while True:
-                    # 查找JPEG起始标记 (FF D8)
-                    start_idx = buffer.find(b'\xff\xd8')
-                    if start_idx == -1:
-                        break
-                    
-                    # 从起始位置开始查找JPEG结束标记 (FF D9)
-                    end_idx = buffer.find(b'\xff\xd9', start_idx + 2)
-                    if end_idx == -1:
-                        # 没有找到结束标记，保留从起始位置到缓冲区末尾的数据
-                        buffer = buffer[start_idx:]
-                        break
-                    
-                    # 提取完整的JPEG图片数据
-                    jpeg_data = buffer[start_idx:end_idx + 2]
-                    buffer = buffer[end_idx + 2:]
-                    
-                    frame_count += 1
-                    if frame_count % 5000 == 0:  # 每50帧记录一次
-                        logger.info(f"已发送 {frame_count} 帧JPEG图片: {stream_key}")
-                    
-                    # 通过WebSocket发送JPEG图片数据
-                    if stream_key in self.active_streams:
-                        stream_info = self.active_streams[stream_key]
-                        client_id = stream_info['client_id']
-                        
-                        socketio.emit('jpeg_frame', {
-                            'data': base64.b64encode(jpeg_data).decode('utf-8'),
-                            'device_id': stream_info['device_id'],
-                            'frame_number': frame_count,
-                            'frame_size': len(jpeg_data)
-                        }, room=client_id)
-                
-        except Exception as e:
-            logger.error(f"JPEG图片流数据读取错误: {e}")
-            import traceback
-            logger.error(f"错误详情: {traceback.format_exc()}")
-            
-            # 通知客户端发生错误
-            if stream_key in self.active_streams:
-                stream_info = self.active_streams[stream_key]
-                client_id = stream_info['client_id']
-                socketio.emit('video_error', {
-                    'message': f'JPEG图片流数据读取错误: {str(e)}'
-                }, room=client_id)
-                
-        finally:
-            # 清理资源
-            logger.info(f"清理JPEG图片流资源: {stream_key}")
-            # 通知客户端流已停止
-            if stream_key in self.active_streams:
-                stream_info = self.active_streams[stream_key]
-                socketio.emit('video_stream_stopped', {
-                    'message': 'JPEG图片流已停止'
-                }, room=stream_info['client_id'])
-    
-    def _audio_stream_reader(self, stream_key, process, device_id, client_id):
-        """读取音频流数据并通过WebSocket发送"""
-        logger.info(f"开始读取音频流数据: {stream_key}, 进程PID: {process.pid}")
-        
-        try:
-            chunk_count = 0
-            header_sent = False
-            total_bytes_sent = 0
-            last_log_time = time.time()
-            
-            # 检查进程初始状态
-            if process.poll() is not None:
-                logger.error(f"音频FFmpeg进程在开始读取前已退出: {stream_key}, 返回码: {process.returncode}")
-                stderr_output = process.stderr.read().decode('utf-8')
-                if stderr_output:
-                    logger.error(f"音频FFmpeg错误输出: {stderr_output}")
-                return
-            
-            logger.info(f"开始音频数据读取循环: {stream_key}")
-            
-            # 不依赖active_streams来判断是否继续运行，而是直接检查进程状态
-            while True:
+                # 通过WebSocket发送FLV数据
                 try:
-                    # 检查进程状态
-                    poll_result = process.poll()
-                    if poll_result is not None:
-                        logger.warning(f"音频FFmpeg进程已结束: {stream_key}, 返回码: {poll_result}")
-                        stderr_output = process.stderr.read().decode('utf-8')
-                        if stderr_output:
-                            logger.error(f"音频FFmpeg错误输出: {stderr_output}")
-                        break
-                    
-                    # 检查stream_key是否在active_streams中（用于优雅停止）
-                    # 增加启动后的等待时间，避免时序问题
-                    if chunk_count > 0 and stream_key not in self.active_streams:
-                        logger.info(f"stream_key已从active_streams中移除，准备停止: {stream_key}")
-                        break
-                    
-                    # 读取音频数据块，WAV格式
-                    logger.debug(f"尝试读取音频数据块: {stream_key}")
-                    chunk = process.stdout.read(4096)  # 增大块大小
-                    
-                    if not chunk:
-                        logger.warning(f"音频流数据读取完毕，收到空数据块: {stream_key}")
-                        break
-                    
-                    chunk_count += 1
-                    total_bytes_sent += len(chunk)
-                    
-                    logger.debug(f"读取到音频数据块: {stream_key}, 大小: {len(chunk)}, 总块数: {chunk_count}")
-                    
-                    # 发送WAV头部（只发送一次）
-                    if not header_sent and chunk_count == 1:
-                        logger.info(f"发送音频WAV头部: {stream_key}, 数据大小: {len(chunk)}")
-                        header_data = chunk[:44] if len(chunk) >= 44 else chunk
-                        
-                        try:
-                            socketio.emit('audio_header', {
-                                'data': base64.b64encode(header_data).decode('utf-8'),
-                                'device_id': device_id,
-                                'sample_rate': 22050,
-                                'channels': 1,
-                                'bits_per_sample': 16
-                            }, room=client_id)
-                            logger.info(f"WAV头部发送成功: {stream_key}, 头部大小: {len(header_data)}")
-                        except Exception as emit_error:
-                            logger.error(f"发送WAV头部失败: {stream_key}, 错误: {emit_error}")
-                        
-                        header_sent = True
-                        
-                        # 如果第一个chunk大于44字节，发送剩余的音频数据
-                        if len(chunk) > 44:
-                            audio_data = chunk[44:]
-                            logger.debug(f"发送首个音频数据块: {stream_key}, 大小: {len(audio_data)}")
-                            try:
-                                socketio.emit('audio_data', {
-                                    'data': base64.b64encode(audio_data).decode('utf-8'),
-                                    'device_id': device_id,
-                                    'chunk_size': len(audio_data),
-                                    'timestamp': time.time()
-                                }, room=client_id)
-                                logger.debug(f"首个音频数据块发送成功: {stream_key}")
-                            except Exception as emit_error:
-                                logger.error(f"发送首个音频数据块失败: {stream_key}, 错误: {emit_error}")
-                    else:
-                        # 发送音频数据
-                        logger.debug(f"发送音频数据块: {stream_key}, 大小: {len(chunk)}")
-                        try:
-                            socketio.emit('audio_data', {
-                                'data': base64.b64encode(chunk).decode('utf-8'),
-                                'device_id': device_id,
-                                'chunk_size': len(chunk),
-                                'timestamp': time.time()
-                            }, room=client_id)
-                            logger.debug(f"音频数据块发送成功: {stream_key}")
-                        except Exception as emit_error:
-                            logger.error(f"发送音频数据块失败: {stream_key}, 错误: {emit_error}")
-                    
-                    # 定期记录统计信息
-                    current_time = time.time()
-                    if current_time - last_log_time >= 300:  # 每5秒记录一次
-                        logger.info(f"音频流统计: {stream_key}, 已发送 {chunk_count} 个数据包, 总字节数: {total_bytes_sent}")
-                        last_log_time = current_time
-                    
-                    # 每100个数据包的详细记录
-                    if chunk_count % 5000 == 0:
-                        logger.info(f"已发送 {chunk_count} 个音频数据包: {stream_key}, 总字节数: {total_bytes_sent}")
-                        
-                except Exception as read_error:
-                    logger.error(f"读取音频数据块失败: {stream_key}, 错误: {read_error}")
-                    import traceback
-                    logger.error(f"读取错误详情: {traceback.format_exc()}")
-                    continue  # 继续尝试读取下一个数据块
+                    # 使用asyncio在事件循环中发送数据
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(websocket.send(chunk))
+                    loop.close()
+                except Exception as e:
+                    logger.error(f"WebSocket发送数据失败: {e}")
+                    break
                 
-            logger.info(f"音频数据读取循环结束: {stream_key}, 最终chunk_count: {chunk_count}")
-            
         except Exception as e:
-            logger.error(f"音频流数据读取错误: {stream_key}, 错误: {e}")
+            logger.error(f"FLV视频流数据发送错误: {e}")
             import traceback
             logger.error(f"错误详情: {traceback.format_exc()}")
-            
-            # 通知客户端发生错误
-            try:
-                socketio.emit('audio_error', {
-                    'message': f'音频流数据读取错误: {str(e)}'
-                }, room=client_id)
-            except Exception as emit_error:
-                logger.error(f"发送音频错误通知失败: {emit_error}")
-            
         finally:
             # 清理资源
-            logger.info(f"清理音频流资源: {stream_key}, 总计发送 {chunk_count} 个数据包, {total_bytes_sent} 字节")
-            
-            # 通知客户端音频流已停止
-            try:
-                socketio.emit('audio_stream_stopped', {
-                    'message': '音频流已停止'
-                }, room=client_id)
-                logger.info(f"音频流停止通知已发送: {stream_key}")
-            except Exception as emit_error:
-                logger.error(f"发送音频流停止通知失败: {emit_error}")
+            logger.info(f"清理FLV视频流资源: 设备 {device_id}")
+            with self.stream_lock:
+                if device_id in self.active_streams:
+                    del self.active_streams[device_id]
     
     def cleanup_expired_streams(self):
         """清理过期的视频流"""
@@ -1262,71 +920,18 @@ class VideoStreamManager:
         expired_streams = []
         
         with self.stream_lock:
-            for stream_key, stream_info in self.active_streams.items():
+            for device_id, stream_info in self.active_streams.items():
                 # 超过30分钟的流视为过期
                 if current_time - stream_info['start_time'] > 1800:
-                    expired_streams.append(stream_key)
+                    expired_streams.append(device_id)
         
-        for stream_key in expired_streams:
-            device_id, client_id = stream_key.split('_')
-            self.stop_stream(int(device_id), client_id)
+        for device_id in expired_streams:
+            self.stop_stream(device_id)
     
     def get_active_streams_count(self):
         """获取活跃流数量"""
         with self.stream_lock:
             return len(self.active_streams)
-
-    def generate_thumbnail_data(self, device_id):
-        """动态生成设备缩略图数据"""
-        try:
-            device = Device.query.get(device_id)
-            if not device:
-                return None
-            
-            rtsp_url = self.get_rtsp_url(device)
-            
-            # 使用FFmpeg生成缩略图到内存
-            cmd = [
-                'ffmpeg', '-y',
-                '-rtsp_transport', 'tcp',
-                '-i', rtsp_url,
-                '-ss', '00:00:01',  # 跳过第一秒
-                '-vframes', '1',
-                '-s', '480x360',    # 更大的缩略图尺寸，适合移动端
-                '-q:v', '5',        # 图片质量
-                '-f', 'image2pipe', # 输出到管道
-                '-vcodec', 'mjpeg', # MJPEG编码
-                '-'                 # 输出到stdout
-            ]
-            
-            # 超时设置：8秒
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid if os.name != 'nt' else None
-            )
-            
-            try:
-                stdout, stderr = process.communicate(timeout=8)
-                if process.returncode == 0 and stdout:
-                    # 返回缩略图的二进制数据
-                    return stdout
-                else:
-                    logger.error(f"FFmpeg生成缩略图失败: {stderr.decode()}")
-                    return None
-            except subprocess.TimeoutExpired:
-                # 超时处理
-                if os.name != 'nt':
-                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                else:
-                    process.terminate()
-                logger.error(f"生成缩略图超时: 设备 {device_id}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"生成缩略图异常: {e}")
-            return None
 
 # 全局巴法云API管理器
 bemfa_api = BemfaAPI()
@@ -1335,7 +940,7 @@ bemfa_api = BemfaAPI()
 mqtt_manager = MQTTManager()
 
 # 全局视频流管理器
-video_manager = VideoStreamManager()
+video_stream_manager = VideoStreamManager()
 
 # 认证装饰器
 def login_required(f):
@@ -2559,40 +2164,34 @@ def migrate_bemfa_config():
 @app.route('/get_device_thumbnail/<int:device_id>')
 @login_required
 def get_device_thumbnail(device_id):
-    """获取设备缩略图 - 动态生成并返回二进制数据"""
+    """获取设备缩略图"""
     try:
-        device = Device.query.filter_by(id=device_id, visible=True).first()
-        if not device:
-            return jsonify({'success': False, 'message': '设备不存在或不可见'})
-        
-        # 动态生成缩略图
-        thumbnail_data = video_manager.generate_thumbnail_data(device_id)
-        
-        if thumbnail_data:
-            # 直接返回二进制图片数据
-            return Response(
-                thumbnail_data,
-                mimetype='image/jpeg',
-                headers={
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
-            )
+        thumbnail_path = video_stream_manager.get_thumbnail_path(device_id)
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            # 返回相对于static目录的路径
+            relative_path = os.path.relpath(thumbnail_path, app.static_folder)
+            return jsonify({
+                'success': True,
+                'thumbnail_url': f'/static/{relative_path.replace(os.sep, "/")}'
+            })
         else:
-            # 返回默认占位图
-            return jsonify({'success': False, 'message': '缩略图生成失败'})
-            
+            return jsonify({
+                'success': False,
+                'message': '缩略图生成失败'
+            })
     except Exception as e:
-        logger.error(f"获取设备缩略图失败: {e}")
-        return jsonify({'success': False, 'message': str(e)})
+        logger.error(f"获取缩略图失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        })
 
 @app.route('/generate_thumbnail/<int:device_id>', methods=['POST'])
 @login_required
 def generate_thumbnail(device_id):
     """重新生成设备缩略图"""
     try:
-        thumbnail_path = video_manager.generate_thumbnail(device_id)
+        thumbnail_path = video_stream_manager.generate_thumbnail(device_id)
         if thumbnail_path and os.path.exists(thumbnail_path):
             relative_path = os.path.relpath(thumbnail_path, app.static_folder)
             return jsonify({
@@ -2621,7 +2220,7 @@ def video_stream(device_id):
             return "设备不存在或不可见", 404
         
         def generate_video():
-            rtsp_url = video_manager.get_rtsp_url(device)
+            rtsp_url = video_stream_manager.get_rtsp_url(device)
             logger.info(f"开始视频流: 设备 {device_id}, RTSP URL: {rtsp_url}")
             
             # 简化的FFmpeg命令，直接输出HTTP流
@@ -2708,15 +2307,15 @@ def handle_disconnect():
     logger.info(f"客户端断开连接: {request.sid}")
     
     # 停止该客户端的所有视频流
-    with video_manager.stream_lock:
+    with video_stream_manager.stream_lock:
         streams_to_stop = []
-        for stream_key, stream_info in video_manager.active_streams.items():
+        for stream_key, stream_info in video_stream_manager.active_streams.items():
             if stream_info['client_id'] == request.sid:
                 streams_to_stop.append(stream_key)
         
         for stream_key in streams_to_stop:
             device_id, client_id = stream_key.split('_')
-            video_manager.stop_stream(int(device_id), client_id)
+            video_stream_manager.stop_stream(int(device_id), client_id)
     
     # 离开房间
     leave_room(request.sid)
@@ -2744,7 +2343,7 @@ def handle_start_video_stream(data):
         logger.info(f"设备验证通过: {device.name} ({device.ip})")
         
         # 启动视频流
-        success = video_manager.start_stream(device_id, client_id)
+        success = video_stream_manager.start_stream(device_id, client_id)
         if success:
             logger.info(f"视频流启动成功: 设备 {device_id}")
             emit('video_stream_started', {
@@ -2774,7 +2373,7 @@ def handle_stop_video_stream(data):
         
         logger.info(f"收到停止视频流请求: 设备 {device_id}, 客户端 {client_id}")
         
-        success = video_manager.stop_stream(device_id, client_id)
+        success = video_stream_manager.stop_stream(device_id, client_id)
         if success:
             logger.info(f"视频流停止成功: 设备 {device_id}")
             emit('video_stream_stopped', {
@@ -2791,8 +2390,76 @@ def handle_stop_video_stream(data):
         logger.error(f"错误详情: {traceback.format_exc()}")
         emit('video_error', {'message': str(e)})
 
+class WebSocketHandler:
+    """WebSocket处理器"""
+    
+    def __init__(self, video_manager):
+        self.video_manager = video_manager
+        self.clients = {}
+        
+    async def handle_websocket(self, websocket, path):
+        """处理WebSocket连接"""
+        try:
+            # 解析路径，获取设备ID
+            if path.startswith('/rtsp/'):
+                device_id = int(path.split('/')[-1])
+                logger.info(f"WebSocket连接设备 {device_id}: {websocket.remote_address}")
+                
+                # 启动视频流
+                success = self.video_manager.start_stream(device_id, websocket)
+                
+                if success:
+                    # 保持连接活跃
+                    await websocket.wait_closed()
+                    logger.info(f"WebSocket连接关闭: 设备 {device_id}")
+                else:
+                    await websocket.close(code=1003, reason="Stream start failed")
+                    
+        except Exception as e:
+            logger.error(f"WebSocket处理错误: {e}")
+            await websocket.close(code=1011, reason="Internal server error")
+        finally:
+            # 清理资源
+            if 'device_id' in locals():
+                self.video_manager.stop_stream(device_id)
+
+# 创建WebSocket处理器
+websocket_handler = WebSocketHandler(video_stream_manager)
+
+def start_websocket_server():
+    """启动WebSocket服务器"""
+    try:
+        # 启动WebSocket服务器
+        start_server = websockets.serve(
+            websocket_handler.handle_websocket,
+            "localhost",
+            8998,
+            ping_interval=10,
+            ping_timeout=5
+        )
+        
+        logger.info("WebSocket服务器启动在端口 8998")
+        
+        # 在新线程中运行WebSocket服务器
+        def run_server():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(start_server)
+            loop.run_forever()
+        
+        websocket_thread = threading.Thread(target=run_server, daemon=True)
+        websocket_thread.start()
+        
+        return True
+    except Exception as e:
+        logger.error(f"WebSocket服务器启动失败: {e}")
+        return False
+
 if __name__ == '__main__':
     init_db()
     # 启动延迟MQTT初始化
     delayed_mqtt_init()
-    socketio.run(app, host='0.0.0.0', port=8998, debug=False, allow_unsafe_werkzeug=True)
+    # 启动WebSocket服务器
+    start_websocket_server()
+    # 启动Flask应用
+    app.run(host='0.0.0.0', port=8999, debug=False)

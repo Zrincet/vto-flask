@@ -1290,4 +1290,354 @@ body {
 .hover\:shadow-lg:hover { box-shadow: var(--shadow-lg); }
 
 .group:hover .group-hover\:translate-x-1 { transform: translateX(0.25rem); }
-.group:hover .group-hover\:opacity-100 { opacity: 1; } 
+.group:hover .group-hover\:opacity-100 { opacity: 1; }
+
+/* 视频播放界面样式 */
+
+/* 设备缩略图样式 */
+.device-thumbnail {
+    width: 80px;
+    height: 60px;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    margin-right: var(--spacing-md);
+    flex-shrink: 0;
+}
+
+.thumbnail-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.thumbnail-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+}
+
+.thumbnail-placeholder i {
+    font-size: 1.2rem;
+    margin-bottom: 2px;
+}
+
+.thumbnail-placeholder span {
+    font-size: 0.65rem;
+}
+
+.video-play-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.9);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    opacity: 0;
+    z-index: 2;
+}
+
+.device-thumbnail:hover .video-play-btn {
+    opacity: 1;
+}
+
+.video-play-btn:hover {
+    background: var(--primary-color);
+    transform: translate(-50%, -50%) scale(1.1);
+}
+
+.video-play-btn i {
+    font-size: 0.875rem;
+    margin-left: 1px;
+}
+
+/* 视频模态框样式 */
+.modal-xl {
+    max-width: 1200px;
+}
+
+.video-container {
+    display: flex;
+    gap: var(--spacing-lg);
+    min-height: 500px;
+}
+
+.video-player-wrapper {
+    flex: 1;
+    position: relative;
+    background: #000;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.video-player {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #000;
+}
+
+.video-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #000;
+    object-fit: contain;
+}
+
+.audio-player {
+    /* 音频播放器隐藏，通过JavaScript控制 */
+    display: none !important;
+}
+
+.video-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    padding: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.video-control-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.video-control-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.video-status {
+    margin-left: auto;
+    color: white;
+    font-size: 0.875rem;
+}
+
+.video-status-info {
+    color: #93c5fd;
+}
+
+.video-status-success {
+    color: #86efac;
+}
+
+.video-status-error {
+    color: #fca5a5;
+}
+
+.audio-status-info {
+    color: #93c5fd;
+}
+
+.audio-status-success {
+    color: #86efac;
+}
+
+.audio-status-error {
+    color: #fca5a5;
+}
+
+.video-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.1rem;
+    z-index: 10;
+}
+
+.video-loading i {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-md);
+    color: var(--primary-color);
+}
+
+.video-sidebar {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.device-info-card,
+.device-actions-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-lg);
+}
+
+.device-info-card h6,
+.device-actions-card h6 {
+    margin-bottom: var(--spacing-md);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.info-item:last-child {
+    border-bottom: none;
+}
+
+.info-item strong {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.info-item span {
+    color: var(--text-primary);
+}
+
+.device-actions-card {
+    text-align: center;
+}
+
+.device-actions-card .btn {
+    width: 100%;
+    margin-bottom: var(--spacing-md);
+}
+
+.device-actions-card .btn:last-child {
+    margin-bottom: 0;
+}
+
+.unlock-btn-modal {
+    font-size: 1.1rem;
+    padding: var(--spacing-md) var(--spacing-xl);
+}
+
+.unlock-btn-modal i {
+    margin-right: var(--spacing-sm);
+}
+
+/* 响应式调整 */
+@media (max-width: 992px) {
+    .video-container {
+        flex-direction: column;
+    }
+    
+    .video-sidebar {
+        width: 100%;
+        flex-direction: row;
+        gap: var(--spacing-md);
+    }
+    
+    .device-info-card,
+    .device-actions-card {
+        flex: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .device-thumbnail {
+        width: 120px;
+        height: 90px;
+        min-width: 120px;
+        min-height: 90px;
+    }
+    
+    .video-play-btn {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .video-play-btn i {
+        font-size: 14px;
+    }
+    
+    .video-sidebar {
+        width: 100%;
+        margin-top: var(--spacing-lg);
+    }
+    
+    .modal-xl {
+        max-width: 95%;
+        margin: 10px auto;
+    }
+    
+    .video-container {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 576px) {
+    .device-thumbnail {
+        width: 140px;
+        height: 105px;
+        min-width: 140px;
+        min-height: 105px;
+    }
+    
+    .thumbnail-placeholder {
+        font-size: 0.9rem;
+    }
+    
+    .thumbnail-placeholder i {
+        font-size: 1.5rem;
+    }
+    
+    .video-controls {
+        padding: var(--spacing-sm);
+    }
+    
+    .video-control-btn {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .video-status {
+        font-size: 0.8rem;
+    }
+    
+    .device-item {
+        padding: var(--spacing-md);
+    }
+    
+    .device-info {
+        margin-left: var(--spacing-md);
+    }
+} 

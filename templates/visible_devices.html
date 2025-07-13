@@ -31,8 +31,15 @@
     <div class="devices-list" id="devicesList">
         {% for device in devices %}
         <div class="device-item" data-device-id="{{ device.id }}" data-search-text="{{ device.name }} {{ device.section_number }}区 {{ device.building_number }}幢 {{ device.ip }}">
-            <div class="device-icon">
-                <i class="fas fa-door-open"></i>
+            <div class="device-thumbnail">
+                <img src="" alt="设备预览" class="thumbnail-image" id="thumbnail-{{ device.id }}" style="display: none;">
+                <div class="thumbnail-placeholder" id="placeholder-{{ device.id }}">
+                    <i class="fas fa-video"></i>
+                    <span>加载中...</span>
+                </div>
+                <div class="video-play-btn" data-device-id="{{ device.id }}" title="播放视频">
+                    <i class="fas fa-play"></i>
+                </div>
             </div>
             
             <div class="device-info">
@@ -85,11 +92,117 @@
     </div>
     {% endif %}
 </div>
+
+<!-- 视频播放模态框 -->
+<div class="modal fade" id="videoModal" tabindex="-1" aria-labelledby="videoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="videoModalLabel">
+                    <i class="fas fa-video"></i>
+                    <span id="videoDeviceName">设备视频</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="video-container">
+                    <div class="video-player-wrapper">
+                        <canvas id="videoCanvas" class="video-canvas" width="1280" height="720">
+                            您的浏览器不支持Canvas
+                        </canvas>
+                        <audio id="audioPlayer" class="audio-player" muted style="display: none;">
+                            您的浏览器不支持音频播放
+                        </audio>
+                        <div class="video-controls">
+                            <button class="video-control-btn" id="playPauseBtn">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button class="video-control-btn" id="volumeBtn">
+                                <i class="fas fa-volume-mute"></i>
+                            </button>
+                            <div class="video-status">
+                                <span id="videoStatus">准备中...</span>
+                                <small id="audioStatus" style="display: block; opacity: 0.7; font-size: 0.75rem;"></small>
+                            </div>
+                        </div>
+                        <div class="video-loading" id="videoLoading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>正在加载视频流...</span>
+                        </div>
+                    </div>
+                    <div class="video-sidebar">
+                        <div class="device-info-card">
+                            <h6>设备信息</h6>
+                            <div class="info-item">
+                                <strong>设备名称:</strong>
+                                <span id="modalDeviceName"></span>
+                            </div>
+                            <div class="info-item">
+                                <strong>设备地址:</strong>
+                                <span id="modalDeviceLocation"></span>
+                            </div>
+                            <div class="info-item">
+                                <strong>IP地址:</strong>
+                                <span id="modalDeviceIP"></span>
+                            </div>
+                            <div class="info-item">
+                                <strong>状态:</strong>
+                                <span id="modalDeviceStatus"></span>
+                            </div>
+                        </div>
+                        <div class="device-actions-card">
+                            <h6>设备控制</h6>
+                            <button class="btn btn-primary btn-lg unlock-btn-modal" id="unlockBtnModal" data-device-id="">
+                                <i class="fas fa-unlock"></i>
+                                开锁
+                            </button>
+                            <button class="btn btn-secondary btn-lg" id="refreshThumbnailBtn">
+                                <i class="fas fa-sync"></i>
+                                刷新预览
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/socket.io.min.js"></script>
 <script>
+// 全局变量
+let socket = null;
+let currentDevice = null;
+let isVideoPlaying = false;
+let videoCanvas = null;
+let canvasContext = null;
+let audioPlayer = null;
+let audioContext = null;
+let videoModal = null;
+let audioBuffer = [];
+let audioSource = null;
+let audioStartTime = null;
+let videoStartTime = null;
+let audioDataQueue = [];
+let wavHeader = null;
+let lastAudioPlayTime = 0;
+
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化变量
+    videoCanvas = document.getElementById('videoCanvas');
+    canvasContext = videoCanvas.getContext('2d');
+    audioPlayer = document.getElementById('audioPlayer');
+    videoModal = new bootstrap.Modal(document.getElementById('videoModal'));
+    
+    // 初始化Socket.IO连接
+    initializeSocket();
+    
+    // 加载所有设备的缩略图
+    loadAllThumbnails();
+    
     // 搜索功能
     const searchInput = document.getElementById('deviceSearch');
     const devicesList = document.getElementById('devicesList');
@@ -111,38 +224,460 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.unlock-btn').forEach(button => {
         button.addEventListener('click', function() {
             const deviceId = this.dataset.deviceId;
-            const originalHTML = this.innerHTML;
-            
-            // 禁用按钮并显示加载状态
-            this.disabled = true;
-            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            
-            // 发送开锁请求
-            fetch(`/unlock_device/${deviceId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showMessage('success', data.message);
-                        // 短暂延迟后恢复按钮
-                        setTimeout(() => {
-                            this.disabled = false;
-                            this.innerHTML = originalHTML;
-                        }, 2000);
-                    } else {
-                        showMessage('error', data.message);
-                        this.disabled = false;
-                        this.innerHTML = originalHTML;
-                    }
-                })
-                .catch(error => {
-                    showMessage('error', '网络错误: ' + error.message);
-                    this.disabled = false;
-                    this.innerHTML = originalHTML;
-                });
+            unlockDevice(deviceId, this);
         });
+    });
+    
+    // 视频播放按钮点击事件
+    document.querySelectorAll('.video-play-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const deviceId = parseInt(this.dataset.deviceId);
+            openVideoModal(deviceId);
+        });
+    });
+    
+    // 模态框开锁按钮事件
+    document.getElementById('unlockBtnModal').addEventListener('click', function() {
+        const deviceId = this.dataset.deviceId;
+        unlockDevice(deviceId, this);
+    });
+    
+    // 刷新缩略图按钮事件
+    document.getElementById('refreshThumbnailBtn').addEventListener('click', function() {
+        if (currentDevice) {
+            generateThumbnail(currentDevice.id);
+        }
+    });
+    
+    // 视频控制按钮事件
+    document.getElementById('playPauseBtn').addEventListener('click', function() {
+        if (isVideoPlaying) {
+            stopVideoStream();
+        } else {
+            startVideoStream();
+        }
+    });
+    
+    // 音量控制按钮事件
+    document.getElementById('volumeBtn').addEventListener('click', function() {
+        if (audioPlayer.muted) {
+            audioPlayer.muted = false;
+            this.querySelector('i').className = 'fas fa-volume-up';
+            showAudioStatus('音频已启用', 'success');
+            
+            // 如果有音频流正在播放，尝试播放
+            if (audioPlayer.src) {
+                audioPlayer.play().catch(error => {
+                    console.log('音频播放需要用户交互:', error.message);
+                });
+            }
+        } else {
+            audioPlayer.muted = true;
+            this.querySelector('i').className = 'fas fa-volume-mute';
+            showAudioStatus('音频已静音', 'info');
+            audioPlayer.pause();
+        }
+    });
+    
+    // 模态框关闭事件
+    document.getElementById('videoModal').addEventListener('hidden.bs.modal', function() {
+        if (isVideoPlaying) {
+            stopVideoStream();
+        }
+        currentDevice = null;
+        
+        // 清空Canvas
+        if (canvasContext) {
+            canvasContext.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+        }
+        
+        // 清理音频资源
+        if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioPlayer.src);
+        }
+        audioPlayer.src = '';
+        audioPlayer.pause();
+        
+        // 重置时间戳
+        audioStartTime = null;
+        videoStartTime = null;
+        
+        // 清理音频缓冲区
+        audioBuffer = [];
+        
+        // 清空状态显示
+        showAudioStatus('', 'info');
+        
+        console.log('视频模态框已关闭，资源已清理');
     });
 });
 
+// 初始化Socket.IO连接
+function initializeSocket() {
+    console.log('=== 初始化WebSocket连接 ===');
+    
+    try {
+        socket = io();
+        console.log('Socket.IO对象创建成功');
+    } catch (error) {
+        console.error('Socket.IO对象创建失败:', error);
+        return;
+    }
+    
+    socket.on('connect', function() {
+        console.log('=== WebSocket连接成功 ===');
+        console.log('Socket ID:', socket.id);
+        showVideoStatus('WebSocket连接成功', 'success');
+    });
+    
+    socket.on('disconnect', function() {
+        console.log('=== WebSocket连接断开 ===');
+        if (isVideoPlaying) {
+            showVideoStatus('连接断开', 'error');
+        }
+    });
+    
+    socket.on('video_stream_started', function(data) {
+        console.log('=== 收到video_stream_started事件 ===');
+        console.log('数据:', data);
+        showVideoStatus('JPEG图片流已启动', 'success');
+        isVideoPlaying = true;
+        updatePlayPauseBtn();
+        hideVideoLoading();
+        
+        // 记录视频开始时间用于同步
+        videoStartTime = Date.now();
+        
+        // 自动启用音频
+        if (audioPlayer.muted) {
+            audioPlayer.muted = false;
+            document.getElementById('volumeBtn').querySelector('i').className = 'fas fa-volume-up';
+            showAudioStatus('音频已自动启用', 'success');
+        }
+    });
+    
+    socket.on('video_stream_stopped', function(data) {
+        console.log('=== 收到video_stream_stopped事件 ===');
+        console.log('数据:', data);
+        showVideoStatus('JPEG图片流已停止', 'info');
+        isVideoPlaying = false;
+        updatePlayPauseBtn();
+        showVideoLoading();
+        
+        // 清空Canvas
+        if (canvasContext) {
+            canvasContext.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+        }
+        console.log('JPEG图片流播放已停止');
+    });
+    
+    // 接收JPEG图片帧
+    socket.on('jpeg_frame', function(data) {
+        if (data.device_id === currentDevice?.id) {
+            displayJpegFrame(data.data);
+        }
+    });
+    
+    // 接收音频头部
+    socket.on('audio_header', function(data) {
+        if (data.device_id === currentDevice?.id) {
+            console.log('收到音频头部数据');
+            audioStartTime = Date.now();
+            showAudioStatus('音频流已连接', 'success');
+            setupAudioPlayer(data);
+        }
+    });
+    
+    // 接收音频数据
+    socket.on('audio_data', function(data) {
+        if (data.device_id === currentDevice?.id) {
+            handleAudioData(data);
+        }
+    });
+    
+    socket.on('audio_error', function(data) {
+        console.log('=== 收到audio_error事件 ===');
+        console.error('音频错误数据:', data);
+        showAudioStatus('音频错误: ' + data.message, 'error');
+    });
+    
+    socket.on('audio_stream_stopped', function(data) {
+        console.log('=== 收到audio_stream_stopped事件 ===');
+        showAudioStatus('音频流已停止', 'info');
+    });
+    
+    socket.on('video_error', function(data) {
+        console.log('=== 收到video_error事件 ===');
+        console.error('视频错误数据:', data);
+        showVideoStatus('视频错误: ' + data.message, 'error');
+        showVideoLoading();
+        isVideoPlaying = false;
+        updatePlayPauseBtn();
+    });
+    
+    socket.on('connect_error', function(error) {
+        console.error('=== WebSocket连接错误 ===');
+        console.error('错误详情:', error);
+        showVideoStatus('WebSocket连接失败', 'error');
+    });
+    
+    console.log('WebSocket事件监听器设置完成');
+}
+
+// 加载所有设备的缩略图
+function loadAllThumbnails() {
+    const deviceItems = document.querySelectorAll('.device-item');
+    deviceItems.forEach(item => {
+        const deviceId = item.dataset.deviceId;
+        loadThumbnail(deviceId);
+    });
+}
+
+// 加载单个设备的缩略图
+function loadThumbnail(deviceId) {
+    const thumbnailImg = document.getElementById(`thumbnail-${deviceId}`);
+    const placeholder = document.getElementById(`placeholder-${deviceId}`);
+    
+    if (!thumbnailImg || !placeholder) return;
+    
+    // 显示加载状态
+    placeholder.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>生成中...</span>';
+    
+    // 直接设置缩略图URL，添加时间戳防止缓存
+    const thumbnailUrl = `/get_device_thumbnail/${deviceId}?t=${Date.now()}`;
+    
+    thumbnailImg.onload = function() {
+        thumbnailImg.style.display = 'block';
+        placeholder.style.display = 'none';
+    };
+    
+    thumbnailImg.onerror = function() {
+        thumbnailImg.style.display = 'none';
+        placeholder.style.display = 'block';
+        placeholder.innerHTML = '<i class="fas fa-exclamation-triangle"></i><span>加载失败</span>';
+    };
+    
+    thumbnailImg.src = thumbnailUrl;
+}
+
+// 生成缩略图
+function generateThumbnail(deviceId) {
+    const placeholder = document.getElementById(`placeholder-${deviceId}`);
+    if (placeholder) {
+        placeholder.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>生成中...</span>';
+    }
+    
+    fetch(`/generate_thumbnail/${deviceId}`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadThumbnail(deviceId);
+                showMessage('success', '缩略图生成成功');
+            } else {
+                showMessage('error', '缩略图生成失败: ' + data.message);
+                if (placeholder) {
+                    placeholder.innerHTML = '<i class="fas fa-video"></i><span>生成失败</span>';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('生成缩略图失败:', error);
+            showMessage('error', '生成缩略图失败');
+            if (placeholder) {
+                placeholder.innerHTML = '<i class="fas fa-exclamation-triangle"></i><span>生成失败</span>';
+            }
+        });
+}
+
+// 打开视频模态框
+function openVideoModal(deviceId) {
+    console.log('=== 打开视频模态框 ===');
+    console.log('设备ID:', deviceId);
+    
+    const deviceItem = document.querySelector(`[data-device-id="${deviceId}"]`);
+    if (!deviceItem) {
+        console.error('找不到设备元素:', deviceId);
+        return;
+    }
+    
+    // 获取设备信息
+    const deviceName = deviceItem.querySelector('.device-name').textContent;
+    const deviceLocation = deviceItem.querySelector('.device-location span').textContent;
+    const deviceIP = deviceItem.querySelector('.device-ip span').textContent;
+    const deviceStatus = deviceItem.querySelector('.device-status span').textContent;
+    
+    console.log('设备信息:', { deviceName, deviceLocation, deviceIP, deviceStatus });
+    
+    // 设置当前设备
+    currentDevice = {
+        id: deviceId,
+        name: deviceName,
+        location: deviceLocation,
+        ip: deviceIP,
+        status: deviceStatus
+    };
+    
+    console.log('当前设备设置:', currentDevice);
+    
+    // 更新模态框内容
+    document.getElementById('videoDeviceName').textContent = deviceName;
+    document.getElementById('modalDeviceName').textContent = deviceName;
+    document.getElementById('modalDeviceLocation').textContent = deviceLocation;
+    document.getElementById('modalDeviceIP').textContent = deviceIP;
+    document.getElementById('modalDeviceStatus').textContent = deviceStatus;
+    document.getElementById('unlockBtnModal').dataset.deviceId = deviceId;
+    
+    // 重置状态
+    isVideoPlaying = false;
+    updatePlayPauseBtn();
+    showVideoStatus('准备中...', 'info');
+    showVideoLoading();
+    
+    // 默认启用音频（自动播放）
+    audioPlayer.muted = false;
+    document.getElementById('volumeBtn').querySelector('i').className = 'fas fa-volume-up';
+    showAudioStatus('音频已启用，等待连接...', 'info');
+    
+    // 重置时间戳
+    audioStartTime = null;
+    videoStartTime = null;
+    
+    // 显示模态框
+    console.log('显示模态框');
+    videoModal.show();
+    
+    // 检查WebSocket连接状态
+    console.log('WebSocket连接状态:', socket ? socket.connected : 'socket未初始化');
+    
+    // 自动启动视频流
+    setTimeout(() => {
+        console.log('自动启动视频流');
+        startVideoStream();
+    }, 500); // 延迟500ms确保模态框完全显示
+}
+
+// 开始视频流
+function startVideoStream() {
+    console.log('=== 开始视频流 ===');
+    console.log('当前设备:', currentDevice);
+    console.log('Socket状态:', socket ? socket.connected : 'socket未初始化');
+    
+    if (!currentDevice) {
+        console.error('当前设备未设置');
+        showVideoStatus('设备信息缺失', 'error');
+        return;
+    }
+    
+    if (!socket) {
+        console.error('WebSocket未初始化');
+        showVideoStatus('WebSocket连接失败', 'error');
+        return;
+    }
+    
+    if (!socket.connected) {
+        console.error('WebSocket未连接');
+        showVideoStatus('WebSocket连接断开', 'error');
+        return;
+    }
+    
+    showVideoLoading();
+    showVideoStatus('正在启动JPEG图片流...', 'info');
+    
+    // 启动音频流
+    startAudioStream();
+    
+    console.log('发送start_video_stream事件:', { device_id: currentDevice.id });
+    socket.emit('start_video_stream', {
+        device_id: currentDevice.id
+    });
+}
+
+// 停止视频流
+function stopVideoStream() {
+    console.log('=== 停止视频流 ===');
+    
+    if (!currentDevice || !socket) {
+        console.log('无需停止：设备或socket未设置');
+        return;
+    }
+    
+    showVideoLoading();
+    showVideoStatus('正在停止JPEG图片流...', 'info');
+    
+    // 停止音频流
+    stopAudioStream();
+    
+    console.log('发送stop_video_stream事件:', { device_id: currentDevice.id });
+    socket.emit('stop_video_stream', {
+        device_id: currentDevice.id
+    });
+}
+
+// 更新播放/暂停按钮
+function updatePlayPauseBtn() {
+    const btn = document.getElementById('playPauseBtn');
+    const icon = btn.querySelector('i');
+    
+    if (isVideoPlaying) {
+        icon.className = 'fas fa-pause';
+        btn.title = '暂停';
+    } else {
+        icon.className = 'fas fa-play';
+        btn.title = '播放';
+    }
+}
+
+// 显示视频状态
+function showVideoStatus(message, type = 'info') {
+    const statusElement = document.getElementById('videoStatus');
+    statusElement.textContent = message;
+    statusElement.className = `video-status-${type}`;
+}
+
+// 显示/隐藏视频加载状态
+function showVideoLoading() {
+    document.getElementById('videoLoading').style.display = 'flex';
+}
+
+function hideVideoLoading() {
+    document.getElementById('videoLoading').style.display = 'none';
+}
+
+// 开锁设备
+function unlockDevice(deviceId, button) {
+    const originalHTML = button.innerHTML;
+    
+    // 禁用按钮并显示加载状态
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    // 发送开锁请求
+    fetch(`/unlock_device/${deviceId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage('success', data.message);
+                // 短暂延迟后恢复按钮
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 2000);
+            } else {
+                showMessage('error', data.message);
+                button.disabled = false;
+                button.innerHTML = originalHTML;
+            }
+        })
+        .catch(error => {
+            showMessage('error', '网络错误: ' + error.message);
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        });
+}
+
+// 显示消息
 function showMessage(type, message) {
     const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
     const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
@@ -171,6 +706,242 @@ function showMessage(type, message) {
             alert.remove();
         }
     }, 5000);
+}
+
+// 显示JPEG图片帧
+function displayJpegFrame(base64Data) {
+    try {
+        const img = new Image();
+        img.onload = function() {
+            // 计算居中显示的位置和尺寸
+            const canvasWidth = videoCanvas.width;
+            const canvasHeight = videoCanvas.height;
+            const imgWidth = img.width;
+            const imgHeight = img.height;
+            
+            // 计算缩放比例以适应Canvas
+            const scaleX = canvasWidth / imgWidth;
+            const scaleY = canvasHeight / imgHeight;
+            const scale = Math.min(scaleX, scaleY);
+            
+            // 计算绘制位置
+            const drawWidth = imgWidth * scale;
+            const drawHeight = imgHeight * scale;
+            const drawX = (canvasWidth - drawWidth) / 2;
+            const drawY = (canvasHeight - drawHeight) / 2;
+            
+            // 清空Canvas并绘制图片
+            canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);
+            canvasContext.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+        };
+        
+        img.onerror = function() {
+            console.error('JPEG图片加载失败');
+        };
+        
+        img.src = 'data:image/jpeg;base64,' + base64Data;
+    } catch (error) {
+        console.error('显示JPEG图片帧失败:', error);
+    }
+}
+
+// 显示音频状态
+function showAudioStatus(message, type = 'info') {
+    const audioStatusElement = document.getElementById('audioStatus');
+    if (audioStatusElement) {
+        audioStatusElement.textContent = message;
+        audioStatusElement.className = `audio-status-${type}`;
+        
+        // 3秒后清除状态
+        setTimeout(() => {
+            audioStatusElement.textContent = '';
+        }, 3000);
+    }
+}
+
+// 设置音频播放器
+function setupAudioPlayer(headerData) {
+    try {
+        console.log('设置音频播放器:', headerData);
+        
+        // 重置音频相关变量
+        audioDataQueue = [];
+        wavHeader = null;
+        lastAudioPlayTime = 0;
+        
+        // 存储WAV头部数据
+        const headerBytes = atob(headerData.data);
+        wavHeader = new Uint8Array(headerBytes.length);
+        for (let i = 0; i < headerBytes.length; i++) {
+            wavHeader[i] = headerBytes.charCodeAt(i);
+        }
+        
+        console.log('WAV头部大小:', wavHeader.length);
+        showAudioStatus('音频初始化完成', 'success');
+        
+    } catch (error) {
+        console.error('设置音频播放器失败:', error);
+        showAudioStatus('音频初始化失败', 'error');
+    }
+}
+
+// 处理音频数据 - 修复版本：累积数据并定期播放
+function handleAudioData(data) {
+    try {
+        // 如果音频被静音，忽略音频数据
+        if (audioPlayer.muted) {
+            return;
+        }
+        
+        // 将音频数据添加到队列
+        const binaryString = atob(data.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        audioDataQueue.push(bytes);
+        
+        // 控制播放频率：每2秒或累积足够数据时播放一次，且当前没有音频在播放
+        const currentTime = Date.now();
+        const shouldPlay = (currentTime - lastAudioPlayTime > 2000) || audioDataQueue.length >= 50;
+        const isAudioIdle = audioPlayer.ended || audioPlayer.paused || audioPlayer.currentTime === 0;
+        
+        if (shouldPlay && audioDataQueue.length > 0 && isAudioIdle) {
+            playAccumulatedAudio();
+            lastAudioPlayTime = currentTime;
+        }
+        
+    } catch (error) {
+        console.error('处理音频数据失败:', error);
+        showAudioStatus('音频处理错误', 'error');
+    }
+}
+
+// 播放累积的音频数据
+function playAccumulatedAudio() {
+    try {
+        if (!wavHeader || audioDataQueue.length === 0) {
+            return;
+        }
+        
+        // 如果当前有音频在播放，不要中断
+        if (!audioPlayer.ended && !audioPlayer.paused && audioPlayer.currentTime > 0) {
+            console.log('音频正在播放中，跳过本次播放');
+            return;
+        }
+        
+        // 计算总的音频数据大小
+        let totalDataSize = 0;
+        for (let chunk of audioDataQueue) {
+            totalDataSize += chunk.length;
+        }
+        
+        console.log('准备播放音频，数据包数量:', audioDataQueue.length, '总大小:', totalDataSize);
+        
+        // 手动创建标准的WAV文件头部
+        const wavFile = new Uint8Array(44 + totalDataSize);
+        
+        // WAV文件头部（44字节）
+        const header = new DataView(wavFile.buffer, 0, 44);
+        
+        // RIFF chunk descriptor
+        header.setUint32(0, 0x52494646, false);  // "RIFF" (big-endian)
+        header.setUint32(4, 36 + totalDataSize, true);  // ChunkSize (little-endian)
+        header.setUint32(8, 0x57415645, false);  // "WAVE" (big-endian)
+        
+        // fmt sub-chunk
+        header.setUint32(12, 0x666d7420, false); // "fmt " (big-endian)
+        header.setUint32(16, 16, true);          // Subchunk1Size (16 for PCM)
+        header.setUint16(20, 1, true);           // AudioFormat (1 for PCM)
+        header.setUint16(22, 1, true);           // NumChannels (1 for mono)
+        header.setUint32(24, 22050, true);       // SampleRate
+        header.setUint32(28, 44100, true);       // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+        header.setUint16(32, 2, true);           // BlockAlign (NumChannels * BitsPerSample/8)
+        header.setUint16(34, 16, true);          // BitsPerSample
+        
+        // data sub-chunk
+        header.setUint32(36, 0x64617461, false); // "data" (big-endian)
+        header.setUint32(40, totalDataSize, true); // Subchunk2Size
+        
+        // 复制音频数据
+        let offset = 44;
+        for (let chunk of audioDataQueue) {
+            wavFile.set(chunk, offset);
+            offset += chunk.length;
+        }
+        
+        console.log('生成WAV文件:', {
+            总大小: wavFile.length,
+            头部大小: 44,
+            数据大小: totalDataSize,
+            采样率: 22050,
+            声道数: 1,
+            位深: 16
+        });
+        
+        // 创建Blob并播放
+        const blob = new Blob([wavFile], { type: 'audio/wav' });
+        
+        // 如果有之前的音频URL，释放它
+        if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioPlayer.src);
+        }
+        
+        // 创建新的音频URL并播放
+        const audioUrl = URL.createObjectURL(blob);
+        audioPlayer.src = audioUrl;
+        
+        // 播放音频
+        audioPlayer.play().then(() => {
+            console.log('音频播放成功，文件大小:', wavFile.length, '字节');
+        }).catch(error => {
+            console.log('音频播放失败:', error.message);
+            if (error.name === 'NotAllowedError') {
+                showAudioStatus('点击音量按钮启用音频', 'info');
+            } else if (error.name === 'AbortError') {
+                console.log('音频播放被中断，忽略此错误');
+            } else {
+                showAudioStatus('音频播放失败: ' + error.message, 'error');
+                // 调试：输出WAV文件的前几个字节
+                const debugBytes = new Uint8Array(wavFile.buffer, 0, Math.min(44, wavFile.length));
+                console.log('WAV头部字节:', Array.from(debugBytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            }
+        });
+        
+        // 清空队列
+        audioDataQueue = [];
+        
+    } catch (error) {
+        console.error('播放累积音频失败:', error);
+        showAudioStatus('音频播放错误', 'error');
+    }
+}
+
+// 启动音频流的辅助函数 - 优化版本
+function startAudioStream() {
+    if (audioPlayer && !audioPlayer.muted) {
+        showAudioStatus('正在启动音频流...', 'info');
+        // 用户可能需要先点击播放按钮来启用音频
+        audioPlayer.play().catch(error => {
+            console.log('音频播放需要用户交互:', error.message);
+            showAudioStatus('点击音量按钮启用音频', 'info');
+        });
+    } else {
+        showAudioStatus('音频已静音', 'info');
+    }
+}
+
+// 停止音频流的辅助函数 - 优化版本
+function stopAudioStream() {
+    if (audioPlayer) {
+        audioPlayer.pause();
+        if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioPlayer.src);
+        }
+        audioPlayer.src = '';
+        showAudioStatus('', 'info'); // 清除音频状态
+    }
 }
 </script>
 {% endblock %} 
