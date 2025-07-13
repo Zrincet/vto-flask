@@ -2491,7 +2491,7 @@ def delayed_mqtt_init():
     import time
     
     # 检查是否是Flask的重载进程（调试模式下会重启应用）
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or True:
         # 这是主进程，启动MQTT服务
         def start_mqtt():
             # 等待3秒让应用完全启动

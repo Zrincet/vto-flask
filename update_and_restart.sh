@@ -69,22 +69,22 @@ backup_current_version() {
 # 下载最新版本
 download_latest_version() {
     log_message "开始下载最新版本..."
-    
+
     # 删除旧的下载文件
     rm -f release.zip
-    
-    # 下载最新版本
-    if wget -q --show-progress --progress=bar:force "$DOWNLOAD_URL" -O release.zip 2>&1 | tee -a "$LOG_FILE"; then
+
+    # 下载最新版本（不要用 tee 分流，可能导致文件写入失败）
+    if wget "$DOWNLOAD_URL" -O release.zip; then
         log_message "下载完成"
     else
         error_exit "下载失败，请检查网络连接或URL是否正确"
     fi
-    
+
     # 验证下载的文件
     if [ ! -f "release.zip" ] || [ ! -s "release.zip" ]; then
         error_exit "下载的文件不存在或为空"
     fi
-    
+
     log_message "下载验证通过"
 }
 
