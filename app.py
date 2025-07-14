@@ -1984,7 +1984,7 @@ def sync_bemfa_devices():
                 if deleted_count > 0:
                     message_parts.append(f"删除 {deleted_count} 个多余主题")
                 
-                message = f"同步成功：{', '.join(message_parts)}"
+                message = f"同步成功：{', '.join(message_parts)}，MQTT订阅已刷新"
                 if failed_count > 0:
                     message += f"，{failed_count} 个失败"
                     
@@ -2281,6 +2281,18 @@ def sync_visible_devices_to_bemfa():
                 'failed': result['failed_count'],
                 'success': True
             }]
+            
+            # 如果有任何更改，自动重启MQTT服务
+            if ((result['created_count'] > 0 or result['updated_count'] > 0 or result['deleted_count'] > 0) 
+                and mqtt_manager.is_running):
+                logger.info("巴法云设备同步完成（使用旧配置），重新连接MQTT服务...")
+                try:
+                    mqtt_manager.stop_mqtt_service()
+                    mqtt_manager.start_mqtt_service("bemfa.com", 9501, old_bemfa_key.value)
+                    logger.info("MQTT服务重新连接成功")
+                except Exception as mqtt_error:
+                    logger.error(f"重新连接MQTT服务失败: {str(mqtt_error)}")
+            
             return result
         else:
             logger.warning("未配置巴法云私钥，跳过同步")
@@ -2343,6 +2355,18 @@ def sync_visible_devices_to_bemfa():
             })
     
     logger.info(f"多账号同步完成：总创建 {total_created}，总更新 {total_updated}，总删除 {total_deleted}，总失败 {total_failed}")
+    
+    # 如果有任何更改，自动重启MQTT服务
+    if ((total_created > 0 or total_updated > 0 or total_deleted > 0) and mqtt_manager.is_running):
+        logger.info("巴法云设备同步完成，重新连接MQTT服务...")
+        try:
+            # 停止当前所有连接
+            mqtt_manager.stop_mqtt_service()
+            # 重新启动所有启用的客户端连接
+            mqtt_manager.start_all_clients()
+            logger.info("MQTT服务重新连接成功")
+        except Exception as mqtt_error:
+            logger.error(f"重新连接MQTT服务失败: {str(mqtt_error)}")
     
     return {
         'created_count': total_created,
