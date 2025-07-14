@@ -792,7 +792,7 @@ class VideoStreamManager:
                     '-c:v', 'libx264',         # H.264视频编码
                     '-preset', 'ultrafast',    # 超快编码预设
                     '-tune', 'zerolatency',    # 零延迟调优
-                    '-s', '1280x720',          # 720p分辨率
+                    '-s', '352x288',          # 720p分辨率
                     '-r', '25',                # 帧率25fps
                     '-b:v', '1000k',           # 视频码率1000kbps
                     '-maxrate', '1000k',       # 最大码率
@@ -2231,7 +2231,7 @@ def video_stream(device_id):
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
                 '-tune', 'zerolatency',
-                '-s', '1280x720',
+                '-s', '352x288',
                 '-r', '15',
                 '-b:v', '800k',
                 '-c:a', 'aac',

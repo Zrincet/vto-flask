@@ -701,7 +701,7 @@ class VideoStreamManager:
     
     def get_rtsp_url(self, device):
         """构建RTSP URL"""
-        return f"rtsp://{device.username}:{device.password}@{device.ip}:554/cam/realmonitor?channel=1&subtype=0"
+        return f"rtsp://{device.username}:{device.password}@{device.ip}:554/cam/realmonitor?channel=1&subtype=1"
     
     def generate_thumbnail(self, device_id):
         """生成设备缩略图"""
@@ -809,7 +809,7 @@ class VideoStreamManager:
                 '-i', rtsp_url,
                 '-c:v', 'mjpeg',           # MJPEG编码，低延迟
                 '-q:v', '3',               # 图片质量 (1-31，越小质量越好)
-                '-s', '1280x720',          # 720p分辨率
+                '-s', '352x288',          # 720p分辨率
                 '-r', '25',                # 25fps以获得更流畅的体验
                 '-f', 'mjpeg',             # 输出MJPEG格式
                 '-'                        # 输出到stdout
@@ -2627,7 +2627,7 @@ def video_stream(device_id):
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
                 '-tune', 'zerolatency',
-                '-s', '1280x720',
+                '-s', '352x288',
                 '-r', '15',
                 '-b:v', '800k',
                 '-c:a', 'aac',
