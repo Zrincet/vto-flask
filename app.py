@@ -217,7 +217,7 @@ class DahuaLogin:
 
         return result["result"]
 
-    def open_door(self, door_handle, door_index=0, short_number="04001013502", open_type="Remote"):
+    def open_door(self, door_handle, door_index=0, short_number="04001010001", open_type="Remote"):
         request_data = {
             "id": self._get_next_id(),
             "method": "accessControl.openDoor",
@@ -281,7 +281,7 @@ class DahuaLogin:
         result = response.json()
         return result.get("result", False)
 
-    def execute_door_open_flow(self, door_index=0, short_number="04001013502"):
+    def execute_door_open_flow(self, door_index=0, short_number="04001010001"):
         login_result = self.login()
         if not login_result["success"]:
             return {
@@ -716,12 +716,20 @@ class VideoStreamManager:
             # 使用FFmpeg生成缩略图
             cmd = [
                 'ffmpeg', '-y',
+                '-rtsp_transport', 'tcp',  # 使用TCP传输，更稳定
                 '-i', rtsp_url,
-                '-ss', '00:00:01',  # 跳过第一秒
-                '-vframes', '1',
-                '-s', '320x240',    # 缩略图尺寸
-                '-f', 'image2',
-                thumbnail_path
+                '-c:v', 'mjpeg',           # MJPEG编码，低延迟
+                '-q:v', '12',              # 进一步降低图片质量减少数据量 (1-31，越大压缩越多)
+                '-s', '320x240',           # 降低到更小的分辨率减少处理负载
+                '-r', '8',                 # 降低帧率到8fps大幅减少CPU负载
+                '-threads', '1',           # 限制单线程，避免竞争
+                '-preset', 'ultrafast',    # 最快编码预设
+                '-tune', 'zerolatency',    # 零延迟调优
+                '-probesize', '32',        # 减少探测大小
+                '-analyzeduration', '100000',  # 减少分析时间
+                '-bufsize', '32k',         # 减少缓冲区大小
+                '-f', 'mjpeg',             # 输出MJPEG格式
+                '-'                        # 输出到stdout
             ]
             
             # 超时设置：10秒
@@ -802,15 +810,21 @@ class VideoStreamManager:
         logger.info(f"开始启动JPEG图片流和音频流: {stream_key}, RTSP URL: {rtsp_url}")
         
         try:
-            # FFmpeg命令 - 输出MJPEG格式实现低延迟
+            # FFmpeg命令 - 针对MT7621A路由器极限优化（超低性能设备）
             jpeg_cmd = [
                 'ffmpeg', '-y',
                 '-rtsp_transport', 'tcp',  # 使用TCP传输，更稳定
                 '-i', rtsp_url,
                 '-c:v', 'mjpeg',           # MJPEG编码，低延迟
-                '-q:v', '3',               # 图片质量 (1-31，越小质量越好)
-                '-s', '1280x720',          # 720p分辨率
-                '-r', '25',                # 25fps以获得更流畅的体验
+                '-q:v', '12',              # 进一步降低图片质量减少数据量 (1-31，越大压缩越多)
+                '-s', '320x240',           # 降低到更小的分辨率减少处理负载
+                '-r', '8',                 # 降低帧率到8fps大幅减少CPU负载
+                '-threads', '1',           # 限制单线程，避免竞争
+                '-preset', 'ultrafast',    # 最快编码预设
+                '-tune', 'zerolatency',    # 零延迟调优
+                '-probesize', '32',        # 减少探测大小
+                '-analyzeduration', '100000',  # 减少分析时间
+                '-bufsize', '32k',         # 减少缓冲区大小
                 '-f', 'mjpeg',             # 输出MJPEG格式
                 '-'                        # 输出到stdout
             ]
@@ -897,15 +911,19 @@ class VideoStreamManager:
             except Exception as probe_error:
                 logger.error(f"音频流检查异常: {probe_error}")
             
-            # 简化的音频命令，使用更兼容的格式
+            # 针对MT7621A路由器优化的音频命令（超低性能设备）
             audio_cmd = [
                 'ffmpeg', '-y',
                 '-rtsp_transport', 'tcp',
                 '-i', rtsp_url,
                 '-vn',                     # 不包含视频
                 '-c:a', 'pcm_s16le',       # 使用PCM格式，更稳定
-                '-ar', '22050',            # 降低采样率减少数据量
+                '-ar', '8000',             # 进一步降低采样率到8KHz减少数据量
                 '-ac', '1',                # 单声道
+                '-threads', '1',           # 限制单线程
+                '-probesize', '32',        # 减少探测大小
+                '-analyzeduration', '100000', # 减少分析时间
+                '-bufsize', '16k',         # 减少缓冲区大小
                 '-f', 'wav',               # WAV格式，兼容性更好
                 '-'                        # 输出到stdout
             ]
@@ -1292,8 +1310,9 @@ class VideoStreamManager:
                 '-i', rtsp_url,
                 '-ss', '00:00:01',  # 跳过第一秒
                 '-vframes', '1',
-                '-s', '480x360',    # 更大的缩略图尺寸，适合移动端
-                '-q:v', '5',        # 图片质量
+                '-s', '320x240',    # 降低缩略图尺寸减少处理负载
+                '-q:v', '8',        # 降低图片质量减少数据量
+                '-threads', '1',    # 限制单线程
                 '-f', 'image2pipe', # 输出到管道
                 '-vcodec', 'mjpeg', # MJPEG编码
                 '-'                 # 输出到stdout

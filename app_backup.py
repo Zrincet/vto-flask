@@ -219,7 +219,7 @@ class DahuaLogin:
 
         return result["result"]
 
-    def open_door(self, door_handle, door_index=0, short_number="04001013502", open_type="Remote"):
+    def open_door(self, door_handle, door_index=0, short_number="04001010001", open_type="Remote"):
         request_data = {
             "id": self._get_next_id(),
             "method": "accessControl.openDoor",
@@ -283,7 +283,7 @@ class DahuaLogin:
         result = response.json()
         return result.get("result", False)
 
-    def execute_door_open_flow(self, door_index=0, short_number="04001013502"):
+    def execute_door_open_flow(self, door_index=0, short_number="04001010001"):
         login_result = self.login()
         if not login_result["success"]:
             return {

@@ -107,7 +107,7 @@
             <div class="modal-body">
                 <div class="video-container">
                     <div class="video-player-wrapper">
-                        <canvas id="videoCanvas" class="video-canvas" width="1280" height="720">
+                        <canvas id="videoCanvas" class="video-canvas" width="640" height="480">
                             您的浏览器不支持Canvas
                         </canvas>
                         <audio id="audioPlayer" class="audio-player" muted style="display: none;">
@@ -802,9 +802,9 @@ function handleAudioData(data) {
         
         audioDataQueue.push(bytes);
         
-        // 控制播放频率：每2秒或累积足够数据时播放一次，且当前没有音频在播放
+        // 控制播放频率：针对MT7621A路由器优化 - 每3秒或累积更多数据时播放一次
         const currentTime = Date.now();
-        const shouldPlay = (currentTime - lastAudioPlayTime > 2000) || audioDataQueue.length >= 50;
+        const shouldPlay = (currentTime - lastAudioPlayTime > 3000) || audioDataQueue.length >= 80;
         const isAudioIdle = audioPlayer.ended || audioPlayer.paused || audioPlayer.currentTime === 0;
         
         if (shouldPlay && audioDataQueue.length > 0 && isAudioIdle) {
@@ -855,8 +855,8 @@ function playAccumulatedAudio() {
         header.setUint32(16, 16, true);          // Subchunk1Size (16 for PCM)
         header.setUint16(20, 1, true);           // AudioFormat (1 for PCM)
         header.setUint16(22, 1, true);           // NumChannels (1 for mono)
-        header.setUint32(24, 22050, true);       // SampleRate
-        header.setUint32(28, 44100, true);       // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+        header.setUint32(24, 8000, true);        // SampleRate (匹配后端8000Hz)
+        header.setUint32(28, 16000, true);       // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
         header.setUint16(32, 2, true);           // BlockAlign (NumChannels * BitsPerSample/8)
         header.setUint16(34, 16, true);          // BitsPerSample
         
