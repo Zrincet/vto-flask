@@ -705,7 +705,7 @@ class VideoStreamManager:
     
     def get_rtsp_url(self, device):
         """构建RTSP URL"""
-        return f"rtsp://{device.username}:{device.password}@{device.ip}:554/cam/realmonitor?channel=1&subtype=0"
+        return f"rtsp://{device.username}:{device.password}@{device.ip}:554/cam/realmonitor?channel=1&subtype=1"
     
     def generate_thumbnail(self, device_id):
         """生成设备缩略图"""
