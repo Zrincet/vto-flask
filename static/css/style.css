@@ -902,6 +902,7 @@ body {
     height: 8px;
     border-radius: 50%;
     background: var(--success-color);
+    flex-shrink: 0;
 }
 
 .status-indicator.offline {
@@ -1016,13 +1017,37 @@ body {
 @media (max-width: 768px) {
     .device-item {
         flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-md);
+        align-items: stretch;
+        gap: 0;
+        padding: var(--spacing-md);
+    }
+    
+    .device-thumbnail {
+        width: 100%;
+        height: 0;
+        padding-bottom: 75%; /* 4:3 长宽比例 */
+        margin-right: 0;
+        margin-bottom: var(--spacing-md);
+        position: relative;
+    }
+    
+    .device-thumbnail .thumbnail-image,
+    .device-thumbnail .thumbnail-placeholder {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
     }
     
     .device-icon {
         margin-right: 0;
         margin-bottom: var(--spacing-sm);
+    }
+    
+    .device-info {
+        width: 100%;
+        margin-left: 0;
     }
     
     .device-details {
@@ -1034,11 +1059,35 @@ body {
     .device-actions {
         align-self: stretch;
         justify-content: space-between;
+        margin-top: var(--spacing-md);
     }
     
     .action-btn {
         flex: 1;
         height: 40px;
+    }
+    
+    .video-play-btn {
+        width: 45px;
+        height: 45px;
+    }
+    
+    .video-play-btn i {
+        font-size: 16px;
+    }
+    
+    .video-sidebar {
+        width: 100%;
+        margin-top: var(--spacing-lg);
+    }
+    
+    .modal-xl {
+        max-width: 95%;
+        margin: 10px auto;
+    }
+    
+    .video-container {
+        flex-direction: column;
     }
 }
 
@@ -1305,12 +1354,19 @@ body {
     border: 1px solid var(--border-color);
     margin-right: var(--spacing-md);
     flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.device-thumbnail:hover {
+    transform: scale(1.02);
+    box-shadow: var(--shadow-md);
 }
 
 .thumbnail-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transition: var(--transition);
 }
 
 .thumbnail-placeholder {
@@ -1323,15 +1379,56 @@ body {
     color: var(--text-muted);
     font-size: 0.75rem;
     background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+    transition: var(--transition);
 }
 
 .thumbnail-placeholder i {
     font-size: 1.2rem;
     margin-bottom: 2px;
+    animation: pulse 2s infinite;
 }
 
 .thumbnail-placeholder span {
     font-size: 0.65rem;
+    text-align: center;
+    padding: 0 var(--spacing-xs);
+}
+
+/* 加载动画 */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.thumbnail-placeholder .fa-spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* 错误状态样式 */
+.thumbnail-placeholder .fa-exclamation-triangle {
+    color: var(--warning-color);
+    animation: none;
+}
+
+.thumbnail-placeholder:has(.fa-exclamation-triangle) {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 193, 7, 0.05));
+    border: 1px dashed var(--warning-color);
 }
 
 .video-play-btn {
@@ -1348,18 +1445,21 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: var(--transition);
-    opacity: 0;
+    transition: all 0.3s ease;
+    opacity: 1; /* 播放按钮一直显示 */
     z-index: 2;
-}
-
-.device-thumbnail:hover .video-play-btn {
-    opacity: 1;
+    backdrop-filter: blur(8px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
 }
 
 .video-play-btn:hover {
     background: var(--primary-color);
-    transform: translate(-50%, -50%) scale(1.1);
+    transform: translate(-50%, -50%) scale(1.15);
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+}
+
+.video-play-btn:active {
+    transform: translate(-50%, -50%) scale(0.95);
 }
 
 .video-play-btn i {
@@ -1573,20 +1673,84 @@ body {
 }
 
 @media (max-width: 768px) {
+    .device-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: var(--spacing-md);
+    }
+    
     .device-thumbnail {
-        width: 120px;
-        height: 90px;
-        min-width: 120px;
-        min-height: 90px;
+        width: 100%;
+        height: 0;
+        padding-bottom: 75%; /* 4:3 长宽比例 */
+        margin-right: 0;
+        margin-bottom: var(--spacing-md);
+        position: relative;
+        border-radius: var(--border-radius-lg);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .device-thumbnail:hover {
+        transform: none; /* 移动端不需要悬停缩放 */
+    }
+    
+    .device-thumbnail .thumbnail-image,
+    .device-thumbnail .thumbnail-placeholder {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: var(--border-radius-lg);
+    }
+    
+    .device-icon {
+        margin-right: 0;
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    .device-info {
+        width: 100%;
+        margin-left: 0;
+    }
+    
+    .device-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-sm);
+    }
+    
+    .device-actions {
+        align-self: stretch;
+        justify-content: space-between;
+        margin-top: var(--spacing-md);
+    }
+    
+    .action-btn {
+        flex: 1;
+        height: 40px;
     }
     
     .video-play-btn {
-        width: 35px;
-        height: 35px;
+        width: 45px;
+        height: 45px;
+        border-width: 3px;
+        backdrop-filter: blur(12px);
+        background: rgba(37, 99, 235, 0.95);
     }
     
     .video-play-btn i {
-        font-size: 14px;
+        font-size: 16px;
+    }
+    
+    .video-play-btn:hover {
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+    
+    .video-play-btn:active {
+        transform: translate(-50%, -50%) scale(0.9);
+        background: rgba(37, 99, 235, 1);
     }
     
     .video-sidebar {
@@ -1606,10 +1770,9 @@ body {
 
 @media (max-width: 576px) {
     .device-thumbnail {
-        width: 140px;
-        height: 105px;
-        min-width: 140px;
-        min-height: 105px;
+        padding-bottom: 70%; /* 稍微调整长宽比例，更适合小屏幕 */
+        border-radius: var(--border-radius-lg);
+        box-shadow: var(--shadow-md);
     }
     
     .thumbnail-placeholder {
@@ -1618,6 +1781,27 @@ body {
     
     .thumbnail-placeholder i {
         font-size: 1.5rem;
+    }
+    
+    .video-play-btn {
+        width: 50px;
+        height: 50px;
+        border-width: 3px;
+        backdrop-filter: blur(15px);
+        background: rgba(37, 99, 235, 0.95);
+    }
+    
+    .video-play-btn i {
+        font-size: 18px;
+    }
+    
+    .video-play-btn:hover {
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+    
+    .video-play-btn:active {
+        transform: translate(-50%, -50%) scale(0.85);
+        background: rgba(37, 99, 235, 1);
     }
     
     .video-controls {
@@ -1632,12 +1816,91 @@ body {
     .video-status {
         font-size: 0.8rem;
     }
-    
-    .device-item {
+} 
+
+/* 移动端缩略图状态优化 */
+@media (max-width: 768px) {
+    .thumbnail-placeholder {
+        font-size: 0.9rem;
         padding: var(--spacing-md);
     }
     
-    .device-info {
-        margin-left: var(--spacing-md);
+    .thumbnail-placeholder i {
+        font-size: 1.8rem;
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    .thumbnail-placeholder span {
+        font-size: 0.8rem;
+        max-width: 80%;
+        line-height: 1.2;
+    }
+    
+    .thumbnail-placeholder:has(.fa-exclamation-triangle) {
+        background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 193, 7, 0.05));
+        border: 2px dashed var(--warning-color);
+    }
+    
+    .thumbnail-placeholder .fa-exclamation-triangle {
+        color: var(--warning-color);
+        filter: drop-shadow(0 2px 4px rgba(255, 193, 7, 0.3));
+    }
+}
+
+@media (max-width: 576px) {
+    .thumbnail-placeholder {
+        font-size: 1rem;
+        padding: var(--spacing-lg);
+    }
+    
+    .thumbnail-placeholder i {
+        font-size: 2rem;
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    .thumbnail-placeholder span {
+        font-size: 0.85rem;
+        max-width: 85%;
+        line-height: 1.3;
+    }
+} 
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+    .device-thumbnail:hover {
+        transform: none;
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .device-thumbnail:active {
+        transform: scale(0.98);
+        transition: transform 0.1s ease;
+    }
+    
+    .video-play-btn {
+        background: rgba(37, 99, 235, 0.95);
+        backdrop-filter: blur(12px);
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    
+    .video-play-btn:hover {
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+    
+    .video-play-btn:active {
+        transform: translate(-50%, -50%) scale(0.9);
+        background: rgba(37, 99, 235, 1);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.5);
+    }
+    
+    .action-btn {
+        min-height: 44px; /* 确保足够的触摸目标大小 */
+        min-width: 44px;
+    }
+    
+    .action-btn:active {
+        transform: scale(0.95);
+        transition: transform 0.1s ease;
     }
 } 
