@@ -18,7 +18,7 @@ import logging
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vto_management.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vto.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
