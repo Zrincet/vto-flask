@@ -18,7 +18,12 @@ import logging
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vto.db'
+
+# 生成数据库绝对路径
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_DIR = os.path.join(BASE_DIR, 'db')
+DB_PATH = os.path.join(DB_DIR, 'vto.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -2528,7 +2533,20 @@ def delayed_mqtt_init():
 # 初始化数据库
 def init_db():
     with app.app_context():
+        # 检查并创建数据库目录
+        if not os.path.exists(DB_DIR):
+            os.makedirs(DB_DIR)
+            logger.info(f'已创建数据库目录: {DB_DIR}')
+        
+        # 检查并创建数据库文件
+        if not os.path.exists(DB_PATH):
+            # 创建空的SQLite数据库文件
+            open(DB_PATH, 'a').close()
+            logger.info(f'已创建数据库文件: {DB_PATH}')
+        
         db.create_all()
+        # 打印db的相关信息
+        logger.info(f'数据库已初始化: {db.engine}')
         
         # 创建默认管理员账户
         admin = User.query.filter_by(username='admin').first()
