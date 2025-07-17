@@ -46,21 +46,266 @@ error_exit() {
     exit 1
 }
 
+# 设置Docker命令
+setup_docker_cmd() {
+    if command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
+        DOCKER_CMD="docker"
+    elif sudo docker version >/dev/null 2>&1; then
+        DOCKER_CMD="sudo docker"
+    else
+        error_exit "无法访问Docker"
+    fi
+}
+
+# 检测Linux发行版
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        VERSION=$VERSION_ID
+    elif [ -f /etc/redhat-release ]; then
+        OS="centos"
+    elif [ -f /etc/debian_version ]; then
+        OS="debian"
+    else
+        OS="unknown"
+    fi
+    echo "$OS"
+}
+
+# 安装Docker
+install_docker() {
+    log_info "检测到Docker未安装，开始自动安装..."
+    
+    OS=$(detect_os)
+    log_info "检测到系统: $OS"
+    
+    case "$OS" in
+        "ubuntu"|"debian")
+            log_info "使用APT安装Docker..."
+            
+            # 更新包索引
+            sudo apt-get update
+            
+            # 安装必要的包
+            sudo apt-get install -y \
+                apt-transport-https \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+            
+            # 添加Docker官方GPG密钥
+            curl -fsSL https://download.docker.com/linux/$OS/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            
+            # 添加Docker仓库
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/$OS $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            
+            # 更新包索引
+            sudo apt-get update
+            
+            # 安装Docker
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        "centos"|"rhel"|"rocky"|"almalinux")
+            log_info "使用YUM安装Docker..."
+            
+            # 安装yum-utils
+            sudo yum install -y yum-utils
+            
+            # 添加Docker仓库
+            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            
+            # 安装Docker
+            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        "fedora")
+            log_info "使用DNF安装Docker..."
+            
+            # 安装dnf-plugins-core
+            sudo dnf install -y dnf-plugins-core
+            
+            # 添加Docker仓库
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+            
+            # 安装Docker
+            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        "arch"|"manjaro")
+            log_info "使用Pacman安装Docker..."
+            
+            # 更新包数据库
+            sudo pacman -Sy
+            
+            # 安装Docker
+            sudo pacman -S --noconfirm docker docker-compose
+            ;;
+            
+        "opensuse"|"opensuse-leap"|"opensuse-tumbleweed")
+            log_info "使用Zypper安装Docker..."
+            
+            # 安装Docker
+            sudo zypper install -y docker docker-compose
+            ;;
+            
+        *)
+            log_warning "未识别的Linux发行版: $OS"
+            log_info "尝试使用通用安装脚本..."
+            
+            # 使用Docker官方安装脚本
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sudo sh get-docker.sh
+            rm -f get-docker.sh
+            ;;
+    esac
+    
+    # 启动Docker服务
+    log_info "启动Docker服务..."
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    
+    # 检查Docker是否安装成功
+    if command -v docker >/dev/null 2>&1; then
+        log_success "Docker安装成功"
+        
+        # 添加当前用户到docker组（可选）
+        if [ -n "$SUDO_USER" ]; then
+            log_info "将用户 $SUDO_USER 添加到docker组..."
+            sudo usermod -aG docker "$SUDO_USER"
+            log_warning "请注销并重新登录以使docker组权限生效，或者重新运行此脚本"
+        elif [ "$(id -u)" != "0" ]; then
+            log_info "将当前用户添加到docker组..."
+            sudo usermod -aG docker "$USER"
+            log_warning "请注销并重新登录以使docker组权限生效，或者重新运行此脚本"
+        fi
+    else
+        error_exit "Docker安装失败"
+    fi
+}
+
 # 检查依赖工具
 check_dependencies() {
     log_info "检查编译依赖..."
     
-    REQUIRED_TOOLS="docker wget tar xz git python3 pip zip"
+    # 检查基本工具（除了Docker）
+    BASIC_TOOLS="wget tar xz git python3 zip"
+    MISSING_TOOLS=""
     
-    for tool in $REQUIRED_TOOLS; do
+    for tool in $BASIC_TOOLS; do
         if ! command -v "$tool" >/dev/null 2>&1; then
-            error_exit "必需工具 '$tool' 未安装"
+            if [ "$tool" = "python3" ]; then
+                # 尝试检查python
+                if ! command -v python >/dev/null 2>&1; then
+                    MISSING_TOOLS="$MISSING_TOOLS $tool"
+                fi
+            else
+                MISSING_TOOLS="$MISSING_TOOLS $tool"
+            fi
         fi
     done
     
-    # 检查Docker服务
+    if [ -n "$MISSING_TOOLS" ]; then
+        log_error "以下必需工具未安装:$MISSING_TOOLS"
+        log_info "请先安装这些工具，例如："
+        
+        OS=$(detect_os)
+        case "$OS" in
+            "ubuntu"|"debian")
+                log_info "sudo apt-get install$MISSING_TOOLS"
+                ;;
+            "centos"|"rhel"|"rocky"|"almalinux")
+                log_info "sudo yum install$MISSING_TOOLS"
+                ;;
+            "fedora")
+                log_info "sudo dnf install$MISSING_TOOLS"
+                ;;
+            "arch"|"manjaro")
+                log_info "sudo pacman -S$MISSING_TOOLS"
+                ;;
+        esac
+        exit 1
+    fi
+    
+    # 检查pip
+    if ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
+        log_warning "pip未安装，尝试安装..."
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
+        fi
+    fi
+    
+    # 检查Docker
+    if ! command -v docker >/dev/null 2>&1; then
+        log_warning "Docker未安装"
+        
+        # 检查是否设置了自动安装环境变量
+        if [ "${AUTO_INSTALL_DOCKER:-}" = "yes" ] || [ "${AUTO_INSTALL_DOCKER:-}" = "true" ]; then
+            log_info "检测到AUTO_INSTALL_DOCKER环境变量，自动安装Docker..."
+            install_docker
+        else
+            read -p "是否自动安装Docker? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                install_docker
+            else
+                log_error "Docker是必需的，请手动安装后重新运行脚本"
+                log_info "或者设置环境变量: export AUTO_INSTALL_DOCKER=yes"
+                exit 1
+            fi
+        fi
+    fi
+    
+    # 检查Docker服务状态
     if ! docker version >/dev/null 2>&1; then
-        error_exit "Docker服务未运行"
+        log_warning "Docker服务未运行或权限不足"
+        
+        # 尝试启动Docker服务
+        if systemctl is-active --quiet docker; then
+            log_info "Docker服务已运行"
+        else
+            log_info "尝试启动Docker服务..."
+            if sudo systemctl start docker; then
+                log_success "Docker服务启动成功"
+            else
+                error_exit "无法启动Docker服务"
+            fi
+        fi
+        
+                 # 检查权限
+         if ! docker version >/dev/null 2>&1; then
+             log_warning "Docker权限不足，可能需要运行以下命令："
+             log_info "sudo usermod -aG docker $USER"
+             log_info "然后注销并重新登录，或者使用sudo运行此脚本"
+             
+             # 检查是否设置了使用sudo的环境变量
+             if [ "${USE_SUDO_DOCKER:-}" = "yes" ] || [ "${USE_SUDO_DOCKER:-}" = "true" ]; then
+                 log_info "检测到USE_SUDO_DOCKER环境变量，使用sudo运行Docker..."
+                 # 创建Docker别名函数
+                 docker() {
+                     sudo /usr/bin/docker "$@"
+                 }
+                 export -f docker
+                 log_info "已设置sudo Docker别名"
+             else
+                 read -p "是否使用sudo运行Docker命令? (y/N): " -n 1 -r
+                 echo
+                 if [[ $REPLY =~ ^[Yy]$ ]]; then
+                     # 创建Docker别名函数
+                     docker() {
+                         sudo /usr/bin/docker "$@"
+                     }
+                     export -f docker
+                     log_info "已设置sudo Docker别名"
+                 else
+                     log_error "无法使用Docker，请解决权限问题后重新运行"
+                     log_info "或者设置环境变量: export USE_SUDO_DOCKER=yes"
+                     exit 1
+                 fi
+             fi
+         fi
     fi
     
     log_success "依赖检查通过"
@@ -165,7 +410,14 @@ EOF
     # 构建Docker镜像
     log_info "构建Docker镜像（这可能需要几分钟）..."
     cd "$WORK_DIR"
-    if docker build -t vto-mips-builder .; then
+    
+    # 设置Docker命令
+    setup_docker_cmd
+    if [ "$DOCKER_CMD" = "sudo docker" ]; then
+        log_info "使用sudo运行Docker命令"
+    fi
+    
+    if $DOCKER_CMD build -t vto-mips-builder .; then
         log_success "Docker镜像构建完成"
     else
         error_exit "Docker镜像构建失败"
@@ -237,11 +489,14 @@ EOF
 build_with_docker() {
     log_info "使用Docker进行交叉编译（备用方案）..."
     
+    # 设置Docker命令
+    setup_docker_cmd
+    
     # 复制requirements到Docker环境
     cp "$WORK_DIR/package/requirements.txt" "$WORK_DIR/"
     
     # 在Docker中执行编译
-    docker run --rm \
+    $DOCKER_CMD run --rm \
         -v "$WORK_DIR":/build \
         -w /build \
         vto-mips-builder \
@@ -489,17 +744,37 @@ generate_deploy_docs() {
 - 适用架构: MIPS (Padavan)
 - 大小: $(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
 
-## 系统要求
-- Padavan固件路由器
-- 已挂载的/opt目录（推荐使用USB存储）
-- 至少200MB可用空间
-- 网络连接（用于下载依赖）
+ ## 系统要求
+ - Padavan固件路由器
+ - 已挂载的/opt目录（推荐使用USB存储）
+ - 至少200MB可用空间
+ - 网络连接（用于下载依赖）
+ 
+ ## 构建要求（用于编译此包）
+ - x86_64 Linux系统
+ - Docker（脚本可自动安装）
+ - 基本开发工具（git, wget, tar, zip等）
 
-## 自动安装方法
-\`\`\`bash
-# 一键安装（推荐）
-sh -c "\$(curl -kfsSL https://your-server.com/install.sh)"
-\`\`\`
+ ## 构建此部署包
+ \`\`\`bash
+ # 普通构建
+ ./build_package.sh
+ 
+ # 自动安装Docker（非交互式）
+ AUTO_INSTALL_DOCKER=yes ./build_package.sh
+ 
+ # 使用sudo运行Docker（适用于权限受限环境）
+ AUTO_INSTALL_DOCKER=yes USE_SUDO_DOCKER=yes ./build_package.sh
+ 
+ # 保留工作目录用于调试
+ ./build_package.sh --keep-workspace
+ \`\`\`
+ 
+ ## 自动安装方法
+ \`\`\`bash
+ # 一键安装（推荐）
+ sh -c "\$(curl -kfsSL https://your-server.com/install.sh)"
+ \`\`\`
 
 ## 手动安装方法
 
@@ -600,10 +875,42 @@ cleanup() {
     fi
     
     # 清理Docker镜像
-    if docker images | grep -q "vto-mips-builder"; then
-        docker rmi vto-mips-builder >/dev/null 2>&1 || true
-        log_info "Docker镜像已清理"
+    if command -v docker >/dev/null 2>&1; then
+        setup_docker_cmd 2>/dev/null || DOCKER_CMD="docker"
+        
+        if $DOCKER_CMD images | grep -q "vto-mips-builder" 2>/dev/null; then
+            $DOCKER_CMD rmi vto-mips-builder >/dev/null 2>&1 || true
+            log_info "Docker镜像已清理"
+        fi
     fi
+}
+
+# 显示帮助信息
+show_help() {
+    echo
+    echo "VTO设备管理系统 - MIPS架构打包编译脚本"
+    echo
+    echo "用法:"
+    echo "  $0 [选项]"
+    echo
+    echo "选项:"
+    echo "  -h, --help              显示此帮助信息"
+    echo "  --keep-workspace        保留工作目录（用于调试）"
+    echo
+    echo "环境变量:"
+    echo "  AUTO_INSTALL_DOCKER     自动安装Docker (yes/true)"
+    echo "  USE_SUDO_DOCKER         使用sudo运行Docker (yes/true)"
+    echo
+    echo "示例:"
+    echo "  # 普通构建"
+    echo "  $0"
+    echo
+    echo "  # 自动安装Docker并使用sudo"
+    echo "  AUTO_INSTALL_DOCKER=yes USE_SUDO_DOCKER=yes $0"
+    echo
+    echo "  # 保留工作目录用于调试"
+    echo "  $0 --keep-workspace"
+    echo
 }
 
 # 显示完成信息
@@ -622,16 +929,51 @@ show_completion() {
     log_info "2. 更新install.sh中的下载链接"
     log_info "3. 测试自动安装流程"
     echo
+    log_info "非交互式运行提示:"
+    log_info "  export AUTO_INSTALL_DOCKER=yes    # 自动安装Docker"
+    log_info "  export USE_SUDO_DOCKER=yes        # 使用sudo运行Docker"
+    echo
     log_warning "请确保在目标设备上测试部署包！"
     echo
 }
 
 # 主函数
 main() {
+    # 处理命令行参数
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            --keep-workspace)
+                KEEP_WORKSPACE="true"
+                shift
+                ;;
+            *)
+                log_error "未知参数: $1"
+                log_info "使用 -h 或 --help 查看帮助信息"
+                exit 1
+                ;;
+        esac
+    done
+    
     echo
     log_info "=========================================="
     log_info "VTO设备管理系统 - MIPS架构打包编译"
     log_info "=========================================="
+    echo
+    
+    # 显示环境变量状态
+    if [ "${AUTO_INSTALL_DOCKER:-}" = "yes" ] || [ "${AUTO_INSTALL_DOCKER:-}" = "true" ]; then
+        log_info "环境变量: AUTO_INSTALL_DOCKER=yes (自动安装Docker)"
+    fi
+    if [ "${USE_SUDO_DOCKER:-}" = "yes" ] || [ "${USE_SUDO_DOCKER:-}" = "true" ]; then
+        log_info "环境变量: USE_SUDO_DOCKER=yes (使用sudo运行Docker)"
+    fi
+    if [ "${KEEP_WORKSPACE:-}" = "true" ]; then
+        log_info "选项: --keep-workspace (保留工作目录)"
+    fi
     echo
     
     # 执行构建流程
@@ -648,7 +990,11 @@ main() {
     create_final_package
     test_package
     generate_deploy_docs
-    cleanup "$@"
+    if [ "${KEEP_WORKSPACE:-}" = "true" ]; then
+        cleanup --keep-workspace
+    else
+        cleanup
+    fi
     show_completion
     
     log_success "构建流程全部完成！"
