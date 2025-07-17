@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# VTO设备管理系统 - MIPS架构打包编译脚本
+# VTO设备管理系统 - MIPS架构打包编译脚本（无Docker版本）
 # 在x86_64机器上运行，生成适用于Padavan MIPS架构的部署包
 # 使用方法: ./build_package.sh
 
@@ -16,12 +16,6 @@ WORK_DIR="$(pwd)/build_workspace"
 SOURCE_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/dist"
 PACKAGE_NAME="vto-mips-package.zip"
-PYTHON_VERSION="3.11"
-MIPS_TOOLCHAIN="mipsel-linux-gnu"
-
-# 远程资源配置
-PYTHON_MIPS_URL="https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tar.xz"
-OPENWRT_SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/ramips/mt7621/openwrt-sdk-22.03.5-ramips-mt7621_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
 
 # 日志函数
 log_info() {
@@ -46,17 +40,6 @@ error_exit() {
     exit 1
 }
 
-# 设置Docker命令
-setup_docker_cmd() {
-    if command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
-        DOCKER_CMD="docker"
-    elif sudo docker version >/dev/null 2>&1; then
-        DOCKER_CMD="sudo docker"
-    else
-        error_exit "无法访问Docker"
-    fi
-}
-
 # 检测Linux发行版
 detect_os() {
     if [ -f /etc/os-release ]; then
@@ -73,125 +56,61 @@ detect_os() {
     echo "$OS"
 }
 
-# 安装Docker
-install_docker() {
-    log_info "检测到Docker未安装，开始自动安装..."
+# 安装Python开发环境
+install_python_dev() {
+    log_info "检查Python开发环境..."
     
     OS=$(detect_os)
     log_info "检测到系统: $OS"
     
     case "$OS" in
         "ubuntu"|"debian")
-            log_info "使用APT安装Docker..."
-            
-            # 更新包索引
-            sudo apt-get update
-            
-            # 安装必要的包
-            sudo apt-get install -y \
-                apt-transport-https \
-                ca-certificates \
-                curl \
-                gnupg \
-                lsb-release
-            
-            # 添加Docker官方GPG密钥
-            curl -fsSL https://download.docker.com/linux/$OS/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-            
-            # 添加Docker仓库
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/$OS $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
-            # 更新包索引
-            sudo apt-get update
-            
-            # 安装Docker
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            log_info "使用APT安装Python开发环境..."
+            if command -v apt-get >/dev/null 2>&1; then
+                apt-get update >/dev/null 2>&1 || sudo apt-get update
+                apt-get install -y python3 python3-pip python3-venv python3-dev build-essential >/dev/null 2>&1 || \
+                sudo apt-get install -y python3 python3-pip python3-venv python3-dev build-essential
+            fi
             ;;
             
         "centos"|"rhel"|"rocky"|"almalinux")
-            log_info "使用YUM安装Docker..."
-            
-            # 安装yum-utils
-            sudo yum install -y yum-utils
-            
-            # 添加Docker仓库
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            
-            # 安装Docker
-            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            log_info "使用YUM安装Python开发环境..."
+            if command -v yum >/dev/null 2>&1; then
+                yum install -y python3 python3-pip python3-devel gcc gcc-c++ make >/dev/null 2>&1 || \
+                sudo yum install -y python3 python3-pip python3-devel gcc gcc-c++ make
+            fi
             ;;
             
         "fedora")
-            log_info "使用DNF安装Docker..."
-            
-            # 安装dnf-plugins-core
-            sudo dnf install -y dnf-plugins-core
-            
-            # 添加Docker仓库
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            
-            # 安装Docker
-            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            log_info "使用DNF安装Python开发环境..."
+            if command -v dnf >/dev/null 2>&1; then
+                dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make >/dev/null 2>&1 || \
+                sudo dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
+            fi
             ;;
             
         "arch"|"manjaro")
-            log_info "使用Pacman安装Docker..."
-            
-            # 更新包数据库
-            sudo pacman -Sy
-            
-            # 安装Docker
-            sudo pacman -S --noconfirm docker docker-compose
-            ;;
-            
-        "opensuse"|"opensuse-leap"|"opensuse-tumbleweed")
-            log_info "使用Zypper安装Docker..."
-            
-            # 安装Docker
-            sudo zypper install -y docker docker-compose
+            log_info "使用Pacman安装Python开发环境..."
+            if command -v pacman >/dev/null 2>&1; then
+                pacman -S --noconfirm python python-pip base-devel >/dev/null 2>&1 || \
+                sudo pacman -S --noconfirm python python-pip base-devel
+            fi
             ;;
             
         *)
-            log_warning "未识别的Linux发行版: $OS"
-            log_info "尝试使用通用安装脚本..."
-            
-            # 使用Docker官方安装脚本
-            curl -fsSL https://get.docker.com -o get-docker.sh
-            sudo sh get-docker.sh
-            rm -f get-docker.sh
+            log_warning "未识别的Linux发行版: $OS，跳过自动安装"
             ;;
     esac
     
-    # 启动Docker服务
-    log_info "启动Docker服务..."
-    sudo systemctl start docker
-    sudo systemctl enable docker
-    
-    # 检查Docker是否安装成功
-    if command -v docker >/dev/null 2>&1; then
-        log_success "Docker安装成功"
-        
-        # 添加当前用户到docker组（可选）
-        if [ -n "$SUDO_USER" ]; then
-            log_info "将用户 $SUDO_USER 添加到docker组..."
-            sudo usermod -aG docker "$SUDO_USER"
-            log_warning "请注销并重新登录以使docker组权限生效，或者重新运行此脚本"
-        elif [ "$(id -u)" != "0" ]; then
-            log_info "将当前用户添加到docker组..."
-            sudo usermod -aG docker "$USER"
-            log_warning "请注销并重新登录以使docker组权限生效，或者重新运行此脚本"
-        fi
-    else
-        error_exit "Docker安装失败"
-    fi
+    log_success "Python开发环境检查完成"
 }
 
 # 检查依赖工具
 check_dependencies() {
     log_info "检查编译依赖..."
     
-    # 检查基本工具（除了Docker）
-    BASIC_TOOLS="wget tar xz git python3 zip"
+    # 检查基本工具
+    BASIC_TOOLS="wget tar git python3 zip"
     MISSING_TOOLS=""
     
     for tool in $BASIC_TOOLS; do
@@ -233,79 +152,14 @@ check_dependencies() {
     if ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
         log_warning "pip未安装，尝试安装..."
         if command -v python3 >/dev/null 2>&1; then
-            python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
+            python3 -m ensurepip --default-pip >/dev/null 2>&1 || install_python_dev
         fi
     fi
     
-    # 检查Docker
-    if ! command -v docker >/dev/null 2>&1; then
-        log_warning "Docker未安装"
-        
-        # 检查是否设置了自动安装环境变量
-        if [ "${AUTO_INSTALL_DOCKER:-}" = "yes" ] || [ "${AUTO_INSTALL_DOCKER:-}" = "true" ]; then
-            log_info "检测到AUTO_INSTALL_DOCKER环境变量，自动安装Docker..."
-            install_docker
-        else
-            read -p "是否自动安装Docker? (y/N): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                install_docker
-            else
-                log_error "Docker是必需的，请手动安装后重新运行脚本"
-                log_info "或者设置环境变量: export AUTO_INSTALL_DOCKER=yes"
-                exit 1
-            fi
-        fi
-    fi
-    
-    # 检查Docker服务状态
-    if ! docker version >/dev/null 2>&1; then
-        log_warning "Docker服务未运行或权限不足"
-        
-        # 尝试启动Docker服务
-        if systemctl is-active --quiet docker; then
-            log_info "Docker服务已运行"
-        else
-            log_info "尝试启动Docker服务..."
-            if sudo systemctl start docker; then
-                log_success "Docker服务启动成功"
-            else
-                error_exit "无法启动Docker服务"
-            fi
-        fi
-        
-                 # 检查权限
-         if ! docker version >/dev/null 2>&1; then
-             log_warning "Docker权限不足，可能需要运行以下命令："
-             log_info "sudo usermod -aG docker $USER"
-             log_info "然后注销并重新登录，或者使用sudo运行此脚本"
-             
-             # 检查是否设置了使用sudo的环境变量
-             if [ "${USE_SUDO_DOCKER:-}" = "yes" ] || [ "${USE_SUDO_DOCKER:-}" = "true" ]; then
-                 log_info "检测到USE_SUDO_DOCKER环境变量，使用sudo运行Docker..."
-                 # 创建Docker别名函数
-                 docker() {
-                     sudo /usr/bin/docker "$@"
-                 }
-                 export -f docker
-                 log_info "已设置sudo Docker别名"
-             else
-                 read -p "是否使用sudo运行Docker命令? (y/N): " -n 1 -r
-                 echo
-                 if [[ $REPLY =~ ^[Yy]$ ]]; then
-                     # 创建Docker别名函数
-                     docker() {
-                         sudo /usr/bin/docker "$@"
-                     }
-                     export -f docker
-                     log_info "已设置sudo Docker别名"
-                 else
-                     log_error "无法使用Docker，请解决权限问题后重新运行"
-                     log_info "或者设置环境变量: export USE_SUDO_DOCKER=yes"
-                     exit 1
-                 fi
-             fi
-         fi
+    # 检查Python虚拟环境支持
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        log_warning "Python venv模块不可用，尝试安装..."
+        install_python_dev
     fi
     
     log_success "依赖检查通过"
@@ -321,9 +175,6 @@ setup_workspace() {
     mkdir -p "$OUTPUT_DIR"
     
     # 创建子目录
-    mkdir -p "$WORK_DIR/source"
-    mkdir -p "$WORK_DIR/python-build"
-    mkdir -p "$WORK_DIR/venv-build"
     mkdir -p "$WORK_DIR/package"
     
     log_success "工作环境创建完成: $WORK_DIR"
@@ -354,92 +205,31 @@ copy_source_code() {
     log_success "源代码复制完成"
 }
 
-# 创建Docker构建环境
-create_docker_env() {
-    log_info "创建Docker构建环境..."
-    
-    # 创建Dockerfile
-    cat > "$WORK_DIR/Dockerfile" << 'EOF'
-FROM ubuntu:20.04
-
-# 设置非交互模式
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Asia/Shanghai
-
-# 更新系统并安装依赖
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    wget \
-    curl \
-    git \
-    python3 \
-    python3-pip \
-    python3-dev \
-    python3-venv \
-    libffi-dev \
-    libssl-dev \
-    libsqlite3-dev \
-    zlib1g-dev \
-    libbz2-dev \
-    libreadline-dev \
-    libncurses5-dev \
-    libncursesw5-dev \
-    liblzma-dev \
-    tk-dev \
-    libgdbm-dev \
-    libnss3-dev \
-    libedit-dev \
-    crossbuild-essential-mipsel \
-    && rm -rf /var/lib/apt/lists/*
-
-# 设置工作目录
-WORKDIR /build
-
-# 设置交叉编译环境
-ENV CC=mipsel-linux-gnu-gcc
-ENV CXX=mipsel-linux-gnu-g++
-ENV AR=mipsel-linux-gnu-ar
-ENV STRIP=mipsel-linux-gnu-strip
-ENV RANLIB=mipsel-linux-gnu-ranlib
-
-# 安装最新的pip
-RUN python3 -m pip install --upgrade pip setuptools wheel
-
-EOF
-
-    # 构建Docker镜像
-    log_info "构建Docker镜像（这可能需要几分钟）..."
-    cd "$WORK_DIR"
-    
-    # 设置Docker命令
-    setup_docker_cmd
-    if [ "$DOCKER_CMD" = "sudo docker" ]; then
-        log_info "使用sudo运行Docker命令"
-    fi
-    
-    if $DOCKER_CMD build -t vto-mips-builder .; then
-        log_success "Docker镜像构建完成"
-    else
-        error_exit "Docker镜像构建失败"
-    fi
-}
-
-# 使用预编译包的方案
+# 构建Python虚拟环境
 build_python_environment() {
-    log_info "构建Python虚拟环境（使用预编译包方案）..."
+    log_info "构建Python虚拟环境..."
     
-    # 在宿主机创建虚拟环境
+    # 在工作目录创建虚拟环境
     cd "$WORK_DIR"
-    python3 -m venv venv-host
-    source venv-host/bin/activate
+    
+    # 创建虚拟环境
+    if python3 -m venv venv-build; then
+        log_success "虚拟环境创建成功"
+    else
+        error_exit "虚拟环境创建失败"
+    fi
+    
+    # 激活虚拟环境
+    source venv-build/bin/activate
     
     # 升级pip
-    pip install --upgrade pip
+    log_info "升级pip..."
+    pip install --upgrade pip >/dev/null 2>&1
     
-    # 读取requirements.txt并安装纯Python包
-    log_info "安装纯Python依赖包..."
+    # 读取requirements.txt并安装依赖
+    log_info "安装Python依赖包..."
     
-    # 创建修改后的requirements.txt，移除可能有编译问题的包
+    # 创建优化的requirements.txt，使用稳定版本
     cat > requirements-build.txt << 'EOF'
 Flask==2.3.3
 Flask-SQLAlchemy==3.0.5
@@ -471,10 +261,11 @@ EOF
         log_warning "部分依赖安装失败，继续处理"
     fi
     
+    # 停用虚拟环境
     deactivate
     
     # 复制虚拟环境到打包目录
-    cp -r venv-host "$WORK_DIR/package/venv"
+    cp -r venv-build "$WORK_DIR/package/venv"
     
     # 清理虚拟环境中的无用文件
     log_info "清理虚拟环境..."
@@ -485,38 +276,7 @@ EOF
     log_success "Python环境构建完成"
 }
 
-# 使用Docker交叉编译（备用方案）
-build_with_docker() {
-    log_info "使用Docker进行交叉编译（备用方案）..."
-    
-    # 设置Docker命令
-    setup_docker_cmd
-    
-    # 复制requirements到Docker环境
-    cp "$WORK_DIR/package/requirements.txt" "$WORK_DIR/"
-    
-    # 在Docker中执行编译
-    $DOCKER_CMD run --rm \
-        -v "$WORK_DIR":/build \
-        -w /build \
-        vto-mips-builder \
-        bash -c "
-            echo '开始在Docker中构建...'
-            python3 -m venv venv-docker
-            source venv-docker/bin/activate
-            pip install --upgrade pip
-            
-            # 尝试安装依赖
-            pip install wheel
-            pip install --no-cache-dir -r requirements.txt || echo '部分包安装失败，继续...'
-            
-            # 复制到package目录
-            cp -r venv-docker package/venv-docker
-            echo 'Docker构建完成'
-        " || log_warning "Docker交叉编译失败，使用主机环境"
-}
-
-# 添加启动脚本优化
+# 优化启动脚本
 optimize_scripts() {
     log_info "优化启动脚本..."
     
@@ -649,7 +409,7 @@ optimize_package() {
     find . -name ".DS_Store" -delete
     find . -name "Thumbs.db" -delete
     
-    # 压缩日志文件
+    # 创建日志目录
     mkdir -p logs
     
     # 清理虚拟环境
@@ -662,6 +422,10 @@ optimize_package() {
         find venv -name "doc*" -type d -exec rm -rf {} + 2>/dev/null || true
         find venv -name "*.md" -delete 2>/dev/null || true
         find venv -name "*.rst" -delete 2>/dev/null || true
+        
+        # 删除缓存目录
+        find venv -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+        find venv -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
     fi
     
     log_success "文件优化完成"
@@ -743,38 +507,37 @@ generate_deploy_docs() {
 - 构建时间: $(date)
 - 适用架构: MIPS (Padavan)
 - 大小: $(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
+- 构建方式: 本地Python环境构建
 
- ## 系统要求
- - Padavan固件路由器
- - 已挂载的/opt目录（推荐使用USB存储）
- - 至少200MB可用空间
- - 网络连接（用于下载依赖）
- 
- ## 构建要求（用于编译此包）
- - x86_64 Linux系统
- - Docker（脚本可自动安装）
- - 基本开发工具（git, wget, tar, zip等）
+## 系统要求
+- Padavan固件路由器
+- 已挂载的/opt目录（推荐使用USB存储）
+- 至少200MB可用空间
+- 网络连接（用于下载依赖）
 
- ## 构建此部署包
- \`\`\`bash
- # 普通构建
- ./build_package.sh
- 
- # 自动安装Docker（非交互式）
- AUTO_INSTALL_DOCKER=yes ./build_package.sh
- 
- # 使用sudo运行Docker（适用于权限受限环境）
- AUTO_INSTALL_DOCKER=yes USE_SUDO_DOCKER=yes ./build_package.sh
- 
- # 保留工作目录用于调试
- ./build_package.sh --keep-workspace
- \`\`\`
- 
- ## 自动安装方法
- \`\`\`bash
- # 一键安装（推荐）
- sh -c "\$(curl -kfsSL https://your-server.com/install.sh)"
- \`\`\`
+## 构建要求（用于编译此包）
+- Linux系统（支持多种发行版）
+- Python 3.7+
+- 基本开发工具（git, wget, tar, zip等）
+- 无需Docker（已移除Docker依赖）
+
+## 构建此部署包
+\`\`\`bash
+# 普通构建
+./build_package.sh
+
+# 保留工作目录用于调试
+./build_package.sh --keep-workspace
+
+# 查看帮助信息
+./build_package.sh --help
+\`\`\`
+
+## 自动安装方法
+\`\`\`bash
+# 一键安装（推荐）
+sh -c "\$(curl -kfsSL https://your-server.com/install.sh)"
+\`\`\`
 
 ## 手动安装方法
 
@@ -858,6 +621,10 @@ chmod -R 755 /opt/vto
 2. 错误日志内容
 3. 系统环境信息（运行 check_env.sh）
 
+## 更新记录
+- v2.0: 移除Docker依赖，使用本地Python环境构建
+- v1.0: 初始版本，基于Docker构建
+
 EOF
 
     log_success "部署文档生成完成"
@@ -873,22 +640,12 @@ cleanup() {
     else
         log_info "保留工作目录: $WORK_DIR"
     fi
-    
-    # 清理Docker镜像
-    if command -v docker >/dev/null 2>&1; then
-        setup_docker_cmd 2>/dev/null || DOCKER_CMD="docker"
-        
-        if $DOCKER_CMD images | grep -q "vto-mips-builder" 2>/dev/null; then
-            $DOCKER_CMD rmi vto-mips-builder >/dev/null 2>&1 || true
-            log_info "Docker镜像已清理"
-        fi
-    fi
 }
 
 # 显示帮助信息
 show_help() {
     echo
-    echo "VTO设备管理系统 - MIPS架构打包编译脚本"
+    echo "VTO设备管理系统 - MIPS架构打包编译脚本（无Docker版本）"
     echo
     echo "用法:"
     echo "  $0 [选项]"
@@ -897,19 +654,25 @@ show_help() {
     echo "  -h, --help              显示此帮助信息"
     echo "  --keep-workspace        保留工作目录（用于调试）"
     echo
-    echo "环境变量:"
-    echo "  AUTO_INSTALL_DOCKER     自动安装Docker (yes/true)"
-    echo "  USE_SUDO_DOCKER         使用sudo运行Docker (yes/true)"
+    echo "特性:"
+    echo "  ✓ 无需Docker环境"
+    echo "  ✓ 使用本地Python环境构建"
+    echo "  ✓ 支持多种Linux发行版"
+    echo "  ✓ 自动安装缺失依赖"
+    echo "  ✓ 生成优化的MIPS部署包"
     echo
     echo "示例:"
     echo "  # 普通构建"
     echo "  $0"
     echo
-    echo "  # 自动安装Docker并使用sudo"
-    echo "  AUTO_INSTALL_DOCKER=yes USE_SUDO_DOCKER=yes $0"
-    echo
     echo "  # 保留工作目录用于调试"
     echo "  $0 --keep-workspace"
+    echo
+    echo "支持的系统:"
+    echo "  - Ubuntu/Debian (APT)"
+    echo "  - CentOS/RHEL/Rocky/AlmaLinux (YUM)"
+    echo "  - Fedora (DNF)"
+    echo "  - Arch Linux/Manjaro (Pacman)"
     echo
 }
 
@@ -924,14 +687,15 @@ show_completion() {
     log_info "  部署包: $OUTPUT_DIR/$PACKAGE_NAME"
     log_info "  说明文档: $OUTPUT_DIR/deploy_instructions.md"
     echo
+    log_info "构建特性:"
+    log_info "  ✓ 无Docker依赖"
+    log_info "  ✓ 本地Python环境构建"
+    log_info "  ✓ 适配云效流水线"
+    echo
     log_info "下一步操作:"
     log_info "1. 将部署包上传到服务器"
     log_info "2. 更新install.sh中的下载链接"
     log_info "3. 测试自动安装流程"
-    echo
-    log_info "非交互式运行提示:"
-    log_info "  export AUTO_INSTALL_DOCKER=yes    # 自动安装Docker"
-    log_info "  export USE_SUDO_DOCKER=yes        # 使用sudo运行Docker"
     echo
     log_warning "请确保在目标设备上测试部署包！"
     echo
@@ -961,28 +725,21 @@ main() {
     echo
     log_info "=========================================="
     log_info "VTO设备管理系统 - MIPS架构打包编译"
+    log_info "无Docker版本 - 适配云效流水线"
     log_info "=========================================="
     echo
     
     # 显示环境变量状态
-    if [ "${AUTO_INSTALL_DOCKER:-}" = "yes" ] || [ "${AUTO_INSTALL_DOCKER:-}" = "true" ]; then
-        log_info "环境变量: AUTO_INSTALL_DOCKER=yes (自动安装Docker)"
-    fi
-    if [ "${USE_SUDO_DOCKER:-}" = "yes" ] || [ "${USE_SUDO_DOCKER:-}" = "true" ]; then
-        log_info "环境变量: USE_SUDO_DOCKER=yes (使用sudo运行Docker)"
-    fi
     if [ "${KEEP_WORKSPACE:-}" = "true" ]; then
         log_info "选项: --keep-workspace (保留工作目录)"
+        echo
     fi
-    echo
     
     # 执行构建流程
     check_dependencies
     setup_workspace
     copy_source_code
-    create_docker_env
     build_python_environment
-    # build_with_docker  # 备用方案
     optimize_scripts
     create_configs
     add_extra_tools
