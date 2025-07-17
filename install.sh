@@ -87,20 +87,41 @@ check_disk_space() {
     log_success "磁盘空间检查通过"
 }
 
-# 更新opkg包列表
-update_opkg() {
-    log_info "更新opkg包列表..."
-    
-    if ! opkg update >/dev/null 2>&1; then
-        log_warning "opkg更新失败，继续安装过程"
-    else
-        log_success "opkg包列表更新完成"
-    fi
-}
+
 
 # 安装必要的系统包
 install_system_packages() {
     log_info "安装系统依赖包..."
+    
+    # 检查是否存在本地opkg包
+    if [ -d "$INSTALL_DIR/opkg-packages" ] && [ -f "$INSTALL_DIR/opkg-packages/install_packages.sh" ]; then
+        log_info "发现本地opkg包，使用本地安装..."
+        
+        cd "$INSTALL_DIR/opkg-packages"
+        chmod +x install_packages.sh
+        
+        if ./install_packages.sh; then
+            log_success "本地依赖包安装完成"
+        else
+            log_warning "本地包安装失败，尝试网络安装..."
+            install_packages_from_network
+        fi
+    else
+        log_info "未发现本地包，从网络安装..."
+        install_packages_from_network
+    fi
+}
+
+# 从网络安装包（备用方案）
+install_packages_from_network() {
+    log_info "从网络安装系统依赖包..."
+    
+    # 更新包列表
+    if opkg update >/dev/null 2>&1; then
+        log_success "opkg包列表更新成功"
+    else
+        log_warning "opkg包列表更新失败"
+    fi
     
     # 检查并安装必要包
     PACKAGES="python3 python3-pip python3-dev sqlite3-cli unzip wget curl"
@@ -370,14 +391,13 @@ main() {
     # 执行安装步骤
     check_opt_mount
     check_disk_space
-    update_opkg
-    install_system_packages
     create_temp_dir
     download_package
     extract_package
     install_python_env
     deploy_application
     setup_virtual_env
+    install_system_packages
     create_service
     start_application
     cleanup_temp

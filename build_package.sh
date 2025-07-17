@@ -17,6 +17,26 @@ SOURCE_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/dist"
 PACKAGE_NAME="vto-mips-package.zip"
 
+# MIPS包下载配置
+OPENWRT_REPO="https://downloads.openwrt.org/releases/22.03.5/packages/mipsel_24kc"
+PADAVAN_REPO="https://opt.cn2qq.com/padavan-opt/opt-pkg"
+
+# 必需的MIPS包列表
+REQUIRED_PACKAGES=(
+    "python3"
+    "python3-pip" 
+    "python3-dev"
+    "python3-setuptools"
+    "python3-wheel"
+    "sqlite3-cli"
+    "libsqlite3"
+    "ffmpeg"
+    "curl"
+    "wget"
+    "unzip"
+    "openssl-util"
+)
+
 # 日志函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -178,6 +198,180 @@ setup_workspace() {
     mkdir -p "$WORK_DIR/package"
     
     log_success "工作环境创建完成: $WORK_DIR"
+}
+
+# 下载MIPS架构的opkg包
+download_mips_packages() {
+    log_info "下载MIPS架构的opkg包..."
+    
+    # 创建包目录
+    mkdir -p "$WORK_DIR/package/opkg-packages"
+    cd "$WORK_DIR/package/opkg-packages"
+    
+    # 创建包索引文件
+    cat > package_list.txt << 'EOF'
+# MIPS架构包列表 - 适用于Padavan/OpenWrt
+# 格式: 包名|下载URL|文件名
+python3|base|python3_3.11.8-1_mipsel_24kc.ipk
+python3-pip|packages|python3-pip_23.1.2-1_mipsel_24kc.ipk
+python3-dev|packages|python3-dev_3.11.8-1_mipsel_24kc.ipk
+python3-setuptools|packages|python3-setuptools_68.0.0-1_mipsel_24kc.ipk
+python3-wheel|packages|python3-wheel_0.40.0-1_mipsel_24kc.ipk
+sqlite3-cli|base|sqlite3-cli_3410200-1_mipsel_24kc.ipk
+libsqlite3|base|libsqlite3_3410200-1_mipsel_24kc.ipk
+ffmpeg|packages|ffmpeg_5.1.4-2_mipsel_24kc.ipk
+curl|base|curl_8.0.1-2_mipsel_24kc.ipk
+wget|base|wget_1.21.3-1_mipsel_24kc.ipk
+unzip|base|unzip_6.0-8_mipsel_24kc.ipk
+openssl-util|base|openssl-util_3.0.8-1_mipsel_24kc.ipk
+zlib|base|zlib_1.2.13-1_mipsel_24kc.ipk
+libffi|base|libffi_3.4.4-1_mipsel_24kc.ipk
+libssl3|base|libssl3_3.0.8-1_mipsel_24kc.ipk
+libcrypto3|base|libcrypto3_3.0.8-1_mipsel_24kc.ipk
+libbz2|base|libbz2_1.0.8-1_mipsel_24kc.ipk
+libreadline8|base|libreadline8_8.2-1_mipsel_24kc.ipk
+libncurses6|base|libncurses6_6.4-2_mipsel_24kc.ipk
+libexpat|base|libexpat_2.5.0-1_mipsel_24kc.ipk
+EOF
+
+    # 下载包函数
+    download_package() {
+        local pkg_name="$1"
+        local repo_path="$2" 
+        local filename="$3"
+        
+        local base_url="$OPENWRT_REPO"
+        
+        # 根据仓库路径构建完整URL
+        case "$repo_path" in
+            "base")
+                local url="$base_url/base/$filename"
+                ;;
+            "packages")
+                local url="$base_url/packages/$filename"
+                ;;
+            *)
+                local url="$base_url/$repo_path/$filename"
+                ;;
+        esac
+        
+        log_info "下载 $pkg_name: $filename"
+        
+        # 尝试下载
+        if wget -q --timeout=30 --tries=3 "$url" -O "$filename" 2>/dev/null; then
+            log_success "✓ $pkg_name 下载成功"
+            return 0
+        else
+            log_warning "✗ $pkg_name 下载失败，尝试备用源..."
+            
+            # 尝试备用源
+            local backup_url="$PADAVAN_REPO/$filename"
+            if wget -q --timeout=30 --tries=2 "$backup_url" -O "$filename" 2>/dev/null; then
+                log_success "✓ $pkg_name 从备用源下载成功"
+                return 0
+            else
+                log_warning "✗ $pkg_name 从所有源下载失败"
+                return 1
+            fi
+        fi
+    }
+    
+    # 读取包列表并下载
+    local success_count=0
+    local total_count=0
+    
+    while IFS='|' read -r pkg_name repo_path filename || [ -n "$pkg_name" ]; do
+        # 跳过注释行和空行
+        if [[ "$pkg_name" =~ ^#.*$ ]] || [ -z "$pkg_name" ]; then
+            continue
+        fi
+        
+        total_count=$((total_count + 1))
+        
+        if download_package "$pkg_name" "$repo_path" "$filename"; then
+            success_count=$((success_count + 1))
+        fi
+    done < package_list.txt
+    
+    log_info "包下载完成: $success_count/$total_count 成功"
+    
+    # 创建安装脚本
+    cat > install_packages.sh << 'EOF'
+#!/bin/sh
+
+# MIPS包安装脚本
+# 在目标设备上运行此脚本来安装所有依赖包
+
+log_info() {
+    echo "[INFO] $1"
+}
+
+log_success() {
+    echo "[SUCCESS] $1"
+}
+
+log_warning() {
+    echo "[WARNING] $1"
+}
+
+install_package() {
+    local pkg_file="$1"
+    
+    if [ -f "$pkg_file" ]; then
+        log_info "安装: $pkg_file"
+        if opkg install "$pkg_file" --force-depends 2>/dev/null; then
+            log_success "✓ $pkg_file 安装成功"
+        else
+            log_warning "✗ $pkg_file 安装失败"
+        fi
+    else
+        log_warning "✗ 包文件不存在: $pkg_file"
+    fi
+}
+
+# 安装顺序很重要，先安装基础库
+log_info "开始安装MIPS依赖包..."
+
+# 基础库
+install_package "zlib_*.ipk"
+install_package "libffi_*.ipk"
+install_package "libssl3_*.ipk"
+install_package "libcrypto3_*.ipk"
+install_package "libbz2_*.ipk"
+install_package "libreadline8_*.ipk"
+install_package "libncurses6_*.ipk"
+install_package "libexpat_*.ipk"
+
+# SQLite
+install_package "libsqlite3_*.ipk"
+install_package "sqlite3-cli_*.ipk"
+
+# 网络工具
+install_package "openssl-util_*.ipk"
+install_package "curl_*.ipk"
+install_package "wget_*.ipk"
+install_package "unzip_*.ipk"
+
+# Python
+install_package "python3_*.ipk"
+install_package "python3-setuptools_*.ipk"
+install_package "python3-wheel_*.ipk"
+install_package "python3-pip_*.ipk"
+install_package "python3-dev_*.ipk"
+
+# 多媒体
+install_package "ffmpeg_*.ipk"
+
+log_success "MIPS依赖包安装完成！"
+EOF
+
+    chmod +x install_packages.sh
+    
+    # 统计下载的包
+    local downloaded_count=$(ls -1 *.ipk 2>/dev/null | wc -l)
+    log_success "MIPS包下载完成，共 $downloaded_count 个包"
+    
+    cd "$WORK_DIR"
 }
 
 # 复制源代码
@@ -489,6 +683,24 @@ test_package() {
         log_success "虚拟环境检查通过"
     fi
     
+    # 检查opkg包
+    if [ ! -d "test-extract/opkg-packages" ]; then
+        log_warning "opkg包目录不存在"
+    else
+        local ipk_count=$(ls -1 test-extract/opkg-packages/*.ipk 2>/dev/null | wc -l)
+        if [ "$ipk_count" -gt 0 ]; then
+            log_success "opkg包检查通过，发现 $ipk_count 个包"
+        else
+            log_warning "opkg包目录为空"
+        fi
+        
+        if [ -f "test-extract/opkg-packages/install_packages.sh" ]; then
+            log_success "opkg安装脚本存在"
+        else
+            log_warning "opkg安装脚本缺失"
+        fi
+    fi
+    
     # 清理测试目录
     rm -rf test-extract
     
@@ -508,12 +720,13 @@ generate_deploy_docs() {
 - 适用架构: MIPS (Padavan)
 - 大小: $(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
 - 构建方式: 本地Python环境构建
+- 内置组件: MIPS架构opkg包 (python3, pip3, ffmpeg等)
 
 ## 系统要求
 - Padavan固件路由器
 - 已挂载的/opt目录（推荐使用USB存储）
 - 至少200MB可用空间
-- 网络连接（用于下载依赖）
+- 网络连接（可选，包含本地opkg包）
 
 ## 构建要求（用于编译此包）
 - Linux系统（支持多种发行版）
@@ -532,6 +745,25 @@ generate_deploy_docs() {
 # 查看帮助信息
 ./build_package.sh --help
 \`\`\`
+
+## 内置组件说明
+此部署包内置了以下MIPS架构的opkg包，无需网络下载：
+
+**Python环境**
+- python3 (3.11.8)
+- python3-pip (23.1.2)
+- python3-dev
+- python3-setuptools
+- python3-wheel
+
+**系统依赖**
+- sqlite3-cli + libsqlite3
+- curl + wget + unzip
+- openssl-util
+- zlib + libffi + 其他运行时库
+
+**多媒体支持**
+- ffmpeg (5.1.4)
 
 ## 自动安装方法
 \`\`\`bash
@@ -556,10 +788,11 @@ mkdir -p /opt/vto
 cp -r vto-package/* /opt/vto/
 \`\`\`
 
-### 4. 安装系统依赖
+### 4. 安装系统依赖（使用内置包）
 \`\`\`bash
-opkg update
-opkg install python3 python3-pip sqlite3-cli
+cd /opt/vto/opkg-packages
+chmod +x install_packages.sh
+./install_packages.sh
 \`\`\`
 
 ### 5. 启动应用
@@ -691,6 +924,8 @@ show_completion() {
     log_info "  ✓ 无Docker依赖"
     log_info "  ✓ 本地Python环境构建"
     log_info "  ✓ 适配云效流水线"
+    log_info "  ✓ 内置MIPS架构opkg包"
+    log_info "  ✓ 包含Python3、pip3、ffmpeg等依赖"
     echo
     log_info "下一步操作:"
     log_info "1. 将部署包上传到服务器"
@@ -739,6 +974,7 @@ main() {
     check_dependencies
     setup_workspace
     copy_source_code
+    download_mips_packages
     build_python_environment
     optimize_scripts
     create_configs
