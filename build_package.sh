@@ -212,26 +212,14 @@ download_mips_packages() {
     cat > package_list.txt << 'EOF'
 # MIPS架构包列表 - 适用于Padavan/OpenWrt
 # 格式: 包名|下载URL|文件名
-python3|base|python3_3.11.8-1_mipsel_24kc.ipk
-python3-pip|packages|python3-pip_23.1.2-1_mipsel_24kc.ipk
-python3-dev|packages|python3-dev_3.11.8-1_mipsel_24kc.ipk
-python3-setuptools|packages|python3-setuptools_68.0.0-1_mipsel_24kc.ipk
-python3-wheel|packages|python3-wheel_0.40.0-1_mipsel_24kc.ipk
-sqlite3-cli|base|sqlite3-cli_3410200-1_mipsel_24kc.ipk
-libsqlite3|base|libsqlite3_3410200-1_mipsel_24kc.ipk
-ffmpeg|packages|ffmpeg_5.1.4-2_mipsel_24kc.ipk
-curl|base|curl_8.0.1-2_mipsel_24kc.ipk
-wget|base|wget_1.21.3-1_mipsel_24kc.ipk
-unzip|base|unzip_6.0-8_mipsel_24kc.ipk
-openssl-util|base|openssl-util_3.0.8-1_mipsel_24kc.ipk
-zlib|base|zlib_1.2.13-1_mipsel_24kc.ipk
-libffi|base|libffi_3.4.4-1_mipsel_24kc.ipk
-libssl3|base|libssl3_3.0.8-1_mipsel_24kc.ipk
-libcrypto3|base|libcrypto3_3.0.8-1_mipsel_24kc.ipk
-libbz2|base|libbz2_1.0.8-1_mipsel_24kc.ipk
-libreadline8|base|libreadline8_8.2-1_mipsel_24kc.ipk
-libncurses6|base|libncurses6_6.4-2_mipsel_24kc.ipk
-libexpat|base|libexpat_2.5.0-1_mipsel_24kc.ipk
+python3|packages|python3_3.10.13-2_mipsel_24kc.ipk
+python3-pip|packages|python3-pip_23.0.1-1_mipsel_24kc.ipk
+python3-dev|packages|python3-dev_3.10.13-2_mipsel_24kc.ipk
+python3-setuptools|packages|python3-setuptools_65.5.0-1_mipsel_24kc.ipk
+ffmpeg|packages|ffmpeg_5.1.3-1_mipsel_24kc.ipk
+curl|packages|curl_8.6.0-1_mipsel_24kc.ipk
+wget|packages|wget-ssl_1.21.4-1_mipsel_24kc.ipk
+unzip|packages|unzip_6.0-8_mipsel_24kc.ipk
 EOF
 
     # 下载包函数
