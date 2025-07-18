@@ -89,7 +89,7 @@
             </h5>
         </div>
         <div class="card-body">
-            <form method="POST" action="{{ url_for('save_homekit_config') }}" class="homekit-config-form">
+            <form method="POST" action="{{ url_for('homekit.save_homekit_config') }}" class="homekit-config-form">
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
                         <label for="bridge_name" class="form-label">桥接器名称</label>
@@ -233,13 +233,13 @@
                         </div>
                     </div>
                     <div class="device-actions">
-                        <form method="POST" action="{{ url_for('toggle_homekit_device', homekit_device_id=hk_device.id) }}" style="display: inline;">
+                        <form method="POST" action="{{ url_for('homekit.toggle_homekit_device', homekit_device_id=hk_device.id) }}" style="display: inline;">
                             <button type="submit" class="btn btn-sm {{ 'btn-warning' if hk_device.enabled else 'btn-success' }}" 
                                     title="{{ '禁用' if hk_device.enabled else '启用' }}">
                                 <i class="fas {{ 'fa-pause' if hk_device.enabled else 'fa-play' }}"></i>
                             </button>
                         </form>
-                        <form method="POST" action="{{ url_for('remove_homekit_device', homekit_device_id=hk_device.id) }}" 
+                        <form method="POST" action="{{ url_for('homekit.remove_homekit_device', homekit_device_id=hk_device.id) }}" 
                               style="display: inline;" onsubmit="return confirm('确定要移除此设备吗？')">
                             <button type="submit" class="btn btn-sm btn-danger" title="移除">
                                 <i class="fas fa-trash"></i>
@@ -319,7 +319,7 @@
                 <h5 class="modal-title">添加HomeKit设备</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('add_homekit_device') }}">
+            <form method="POST" action="{{ url_for('homekit.add_homekit_device') }}">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="device_id" class="form-label">选择设备</label>
@@ -355,7 +355,7 @@
 <script>
 // 生成PIN码
 function generatePin() {
-    fetch('{{ url_for("generate_homekit_pin") }}', {
+    fetch('{{ url_for("homekit.generate_homekit_pin") }}', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -378,7 +378,7 @@ function generatePin() {
 // 重启HomeKit服务
 function restartHomeKitService() {
     if (confirm('确定要重启HomeKit服务吗？这会断开所有现有连接。')) {
-        fetch('{{ url_for("restart_homekit_service") }}', {
+        fetch('{{ url_for("homekit.restart_homekit_service") }}', {
             method: 'POST'
         })
         .then(() => {
@@ -408,7 +408,7 @@ function loadHomeKitQRCode() {
     
     if (!container) return;
     
-    fetch('{{ url_for("homekit_qr_code") }}')
+    fetch('{{ url_for("homekit.homekit_qr_code") }}')
     .then(response => response.json())
     .then(data => {
         if (data.success && data.data) {

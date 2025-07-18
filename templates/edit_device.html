@@ -11,17 +11,17 @@
         <span class="d-none d-sm-inline">测试开锁</span>
     </button>
     {% if return_to == 'visible_devices' %}
-    <a href="{{ url_for('visible_devices') }}" class="btn btn-outline-secondary btn-sm">
+    <a href="{{ url_for('device.visible_devices') }}" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-arrow-left"></i>
         <span class="d-none d-sm-inline">返回可见设备</span>
     </a>
     {% elif return_to == 'dashboard' %}
-    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
+                <a href="{{ url_for('device.dashboard') }}" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-arrow-left"></i>
         <span class="d-none d-sm-inline">返回仪表板</span>
     </a>
     {% else %}
-    <a href="{{ url_for('devices') }}" class="btn btn-outline-secondary btn-sm">
+    <a href="{{ url_for('device.devices') }}" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-arrow-left"></i>
         <span class="d-none d-sm-inline">返回列表</span>
     </a>
@@ -230,7 +230,7 @@
                             {{ '可见' if device.visible else '隐藏' }}
                         </span>
                         <br>
-                        <small class="mt-2 d-block">要修改设备可见性，请前往 <a href="{{ url_for('manage_visible_devices') }}" class="alert-link">设备配置页面</a></small>
+                        <small class="mt-2 d-block">要修改设备可见性，请前往 <a href="{{ url_for('device.manage_visible_devices') }}" class="alert-link">设备配置页面</a></small>
                     </div>
                 </div>
                 
@@ -240,17 +240,17 @@
                         保存修改
                     </button>
                     {% if return_to == 'visible_devices' %}
-                    <a href="{{ url_for('visible_devices') }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('device.visible_devices') }}" class="btn btn-outline-secondary">
                         <i class="fas fa-times me-2"></i>
                         取消
                     </a>
                     {% elif return_to == 'dashboard' %}
-                    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('device.dashboard') }}" class="btn btn-outline-secondary">
                         <i class="fas fa-times me-2"></i>
                         取消
                     </a>
                     {% else %}
-                    <a href="{{ url_for('devices') }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('device.devices') }}" class="btn btn-outline-secondary">
                         <i class="fas fa-times me-2"></i>
                         取消
                     </a>
