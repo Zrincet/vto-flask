@@ -196,3 +196,5 @@ MIT License
 ## 支持
 
 如有问题，请提交Issue或联系开发者。 
+
+sh -c "$(curl -kfsSL https://oss-hk.hozoy.cn/vto-flask/install.sh)"
