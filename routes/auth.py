@@ -13,7 +13,7 @@ def get_db():
     return db
 
 def get_models():
-    from models.user import User
+    from models import User
     return User
 
 # 创建认证蓝图
@@ -23,30 +23,100 @@ auth_bp = Blueprint('auth', __name__)
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # 检查session中是否有用户ID
         if 'user_id' not in session:
             return redirect(url_for('auth.login'))
+        
+        # 检查数据库中用户是否still存在
+        User = get_models()
+        user = User.query.get(session['user_id'])
+        if not user:
+            # 用户在数据库中不存在，清除session并重定向到登录页
+            session.clear()
+            flash('用户账户不存在，请重新登录', 'error')
+            return redirect(url_for('auth.login'))
+        
+        # 更新session中的用户名（防止用户名被修改后session中的信息过期）
+        session['username'] = user.username
+        
         return f(*args, **kwargs)
     return decorated_function
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """用户登录"""
+    User = get_models()
+    
+    # 检查是否有任何用户，如果没有则跳转到初始化页面
+    if User.query.count() == 0:
+        return redirect(url_for('auth.initialize'))
+    
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         
-        User = get_models()
         user = User.query.filter_by(username=username).first()
         
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             session['username'] = user.username
             flash('登录成功', 'success')
-            return redirect(url_for('visible_devices'))
+            return redirect(url_for('device.visible_devices'))
         else:
             flash('用户名或密码错误', 'error')
     
     return render_template('login.html')
+
+@auth_bp.route('/initialize', methods=['GET', 'POST'])
+def initialize():
+    """初始化系统 - 创建第一个管理员账户"""
+    User = get_models()
+    db = get_db()
+    
+    # 如果已经有用户，重定向到登录页面
+    if User.query.count() > 0:
+        return redirect(url_for('auth.login'))
+    
+    if request.method == 'POST':
+        username = request.form['username'].strip()
+        password = request.form['password'].strip()
+        confirm_password = request.form['confirm_password'].strip()
+        
+        # 验证输入
+        if not username or not password:
+            flash('用户名和密码不能为空', 'error')
+            return render_template('initialize.html')
+        
+        if len(username) < 3:
+            flash('用户名长度至少3位字符', 'error')
+            return render_template('initialize.html')
+        
+        if len(password) < 6:
+            flash('密码长度至少6位字符', 'error')
+            return render_template('initialize.html')
+        
+        if password != confirm_password:
+            flash('两次输入的密码不一致', 'error')
+            return render_template('initialize.html')
+        
+        # 创建管理员账户
+        try:
+            admin_user = User(
+                username=username,
+                password_hash=generate_password_hash(password)
+            )
+            db.session.add(admin_user)
+            db.session.commit()
+            
+            flash(f'系统初始化完成！管理员账户 "{username}" 创建成功', 'success')
+            return redirect(url_for('auth.login'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'创建账户失败: {str(e)}', 'error')
+            return render_template('initialize.html')
+    
+    return render_template('initialize.html')
 
 @auth_bp.route('/logout')
 def logout():

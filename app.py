@@ -723,8 +723,21 @@ video_manager = VideoStreamManager()
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # 检查session中是否有用户ID
         if 'user_id' not in session:
             return redirect(url_for('auth.login'))
+        
+        # 检查数据库中用户是否still存在
+        user = User.query.get(session['user_id'])
+        if not user:
+            # 用户在数据库中不存在，清除session并重定向到登录页
+            session.clear()
+            flash('用户账户不存在，请重新登录', 'error')
+            return redirect(url_for('auth.login'))
+        
+        # 更新session中的用户名（防止用户名被修改后session中的信息过期）
+        session['username'] = user.username
+        
         return f(*args, **kwargs)
     return decorated_function
 
@@ -820,7 +833,9 @@ def init_db():
         
         # 确保数据库表存在
         db.create_all()
+        logger.info('数据库表已创建')
         
+        # 不再自动创建默认用户，改为通过初始化流程创建
         # 预设设备已迁移到 doc/preset_devices.json，通过Web界面批量导入
 
 
