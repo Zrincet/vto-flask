@@ -9,7 +9,7 @@
             <div class="topbar">
                 <h1 class="page-title">用户管理</h1>
                 <div class="topbar-actions">
-                    <a href="{{ url_for('add_user') }}" class="btn btn-primary">
+                    <a href="{{ url_for('auth.add_user') }}" class="btn btn-primary">
                         <i class="fas fa-plus"></i> 添加用户
                     </a>
                 </div>
@@ -44,11 +44,11 @@
                                     <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                     <td>
                                         <div class="btn-group">
-                                            <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">
+                                            <a href="{{ url_for('auth.edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-edit"></i> 编辑
                                             </a>
                                             {% if user.id != session.user_id and users|length > 1 %}
-                                            <a href="{{ url_for('delete_user', user_id=user.id) }}" 
+                                            <a href="{{ url_for('auth.delete_user', user_id=user.id) }}" 
                                                class="btn btn-sm btn-outline-danger"
                                                onclick="return confirm('确定要删除用户 {{ user.username }} 吗？')">
                                                 <i class="fas fa-trash"></i> 删除

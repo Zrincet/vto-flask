@@ -73,19 +73,19 @@
                     </li>
 
                     <li class="mobile-menu-item">
-                        <a href="{{ url_for('user_management') }}" class="mobile-menu-link {{ 'active' if request.endpoint in ['user_management', 'add_user', 'edit_user'] }}">
+                        <a href="{{ url_for('auth.user_management') }}" class="mobile-menu-link {{ 'active' if request.endpoint in ['auth.user_management', 'auth.add_user', 'auth.edit_user'] }}">
                             <i class="fas fa-users"></i>
                             <span>用户管理</span>
                         </a>
                     </li>
                     <li class="mobile-menu-item">
-                        <a href="{{ url_for('change_password') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'change_password' }}">
+                        <a href="{{ url_for('auth.change_password') }}" class="mobile-menu-link {{ 'active' if request.endpoint == 'auth.change_password' }}">
                             <i class="fas fa-key"></i>
                             <span>修改密码</span>
                         </a>
                     </li>
                     <li class="mobile-menu-item">
-                        <a href="{{ url_for('logout') }}" class="mobile-menu-link">
+                        <a href="{{ url_for('auth.logout') }}" class="mobile-menu-link">
                             <i class="fas fa-sign-out-alt"></i>
                             <span>退出登录</span>
                         </a>
@@ -150,19 +150,19 @@
                 </li>
 
                 <li class="menu-item">
-                    <a href="{{ url_for('user_management') }}" class="menu-link {{ 'active' if request.endpoint in ['user_management', 'add_user', 'edit_user'] }}">
+                    <a href="{{ url_for('auth.user_management') }}" class="menu-link {{ 'active' if request.endpoint in ['auth.user_management', 'auth.add_user', 'auth.edit_user'] }}">
                         <i class="fas fa-users"></i>
                         <span>用户管理</span>
                     </a>
                 </li>
                 <li class="menu-item">
-                    <a href="{{ url_for('change_password') }}" class="menu-link {{ 'active' if request.endpoint == 'change_password' }}">
+                    <a href="{{ url_for('auth.change_password') }}" class="menu-link {{ 'active' if request.endpoint == 'auth.change_password' }}">
                         <i class="fas fa-key"></i>
                         <span>修改密码</span>
                     </a>
                 </li>
                 <li class="menu-item">
-                    <a href="{{ url_for('logout') }}" class="menu-link">
+                    <a href="{{ url_for('auth.logout') }}" class="menu-link">
                         <i class="fas fa-sign-out-alt"></i>
                         <span>退出登录</span>
                     </a>

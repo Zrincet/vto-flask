@@ -9,7 +9,7 @@
             <div class="topbar">
                 <h1 class="page-title">添加用户</h1>
                 <div class="topbar-actions">
-                    <a href="{{ url_for('user_management') }}" class="btn btn-secondary">
+                    <a href="{{ url_for('auth.user_management') }}" class="btn btn-secondary">
                         <i class="fas fa-arrow-left"></i> 返回
                     </a>
                 </div>
@@ -24,7 +24,7 @@
                     <h5 class="card-title">用户信息</h5>
                 </div>
                 <div class="card-body">
-                    <form method="POST" action="{{ url_for('add_user') }}">
+                    <form method="POST" action="{{ url_for('auth.add_user') }}">
                         <div class="form-group">
                             <label for="username">用户名 <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="username" name="username" 
@@ -64,7 +64,7 @@
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-plus"></i> 添加用户
                             </button>
-                            <a href="{{ url_for('user_management') }}" class="btn btn-secondary ml-2">
+                            <a href="{{ url_for('auth.user_management') }}" class="btn btn-secondary ml-2">
                                 <i class="fas fa-times"></i> 取消
                             </a>
                         </div>
