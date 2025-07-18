@@ -192,6 +192,176 @@ def update_visible_devices():
 
 # sync_bemfa_devices路由已迁移到 routes/settings.py
 
+@device_bp.route('/import_devices', methods=['GET', 'POST'])
+def import_devices():
+    """批量导入设备"""
+    login_required = get_login_required()
+    Device, Config, BemfaKey, HomeKitDevice = get_models()
+    DahuaService, mqtt_manager, bemfa_sync_service = get_services()
+    db = get_db()
+    
+    @login_required
+    def _import_devices():
+        if request.method == 'GET':
+            return render_template('import_devices.html')
+        
+        # POST 处理文件上传
+        try:
+            # 检查是否有文件上传
+            if 'device_file' not in request.files:
+                flash('请选择要上传的设备文件', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            file = request.files['device_file']
+            if file.filename == '':
+                flash('请选择要上传的设备文件', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            # 检查文件格式
+            if not file.filename.lower().endswith('.json'):
+                flash('只支持JSON格式的设备文件', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            # 读取和解析JSON文件
+            import json
+            try:
+                file_content = file.read().decode('utf-8')
+                device_data = json.loads(file_content)
+            except json.JSONDecodeError as e:
+                flash(f'JSON文件格式错误: {str(e)}', 'error')
+                return redirect(url_for('device.import_devices'))
+            except UnicodeDecodeError:
+                flash('文件编码错误，请使用UTF-8编码的JSON文件', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            # 验证JSON结构
+            if not isinstance(device_data, dict) or 'devices' not in device_data:
+                flash('JSON文件格式错误，缺少devices字段', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            devices_list = device_data['devices']
+            if not isinstance(devices_list, list):
+                flash('devices字段必须是数组格式', 'error')
+                return redirect(url_for('device.import_devices'))
+            
+            # 获取现有设备IP和名称，避免重复
+            existing_ips = {device.ip for device in Device.query.all()}
+            existing_names = {device.name for device in Device.query.all()}
+            
+            devices_to_add = []
+            skipped_devices = []
+            invalid_devices = []
+            
+            for i, device_info in enumerate(devices_list):
+                try:
+                    # 验证必要字段
+                    if not isinstance(device_info, dict):
+                        invalid_devices.append(f"第{i+1}行: 设备信息必须是对象格式")
+                        continue
+                    
+                    ip = device_info.get('ip', '').strip()
+                    section = device_info.get('section', '').strip()
+                    building = device_info.get('building', '').strip()
+                    position = device_info.get('position', '').strip()
+                    
+                    # 验证必要字段
+                    if not ip or not section or not building:
+                        invalid_devices.append(f"第{i+1}行: IP地址、区域、楼栋号不能为空")
+                        continue
+                    
+                    # 验证IP格式
+                    import ipaddress
+                    try:
+                        ipaddress.ip_address(ip)
+                    except ValueError:
+                        invalid_devices.append(f"第{i+1}行: IP地址格式无效 ({ip})")
+                        continue
+                    
+                    # 检查IP是否已存在
+                    if ip in existing_ips:
+                        skipped_devices.append(f"{ip} (已存在)")
+                        continue
+                    
+                    # 创建临时设备对象以生成名称
+                    temp_device = Device(
+                        section_number=section,
+                        building_number=building,
+                        position=position if position else None,
+                        ip=ip
+                    )
+                    
+                    # 生成设备名称
+                    device_name = temp_device.generate_device_name(existing_names)
+                    existing_names.add(device_name)
+                    existing_ips.add(ip)
+                    
+                    # 生成MQTT主题
+                    mqtt_topic = temp_device.generate_mqtt_topic()
+                    
+                    # 创建设备
+                    device = Device(
+                        name=device_name,
+                        group_name=f"{section}区",
+                        section_number=section,
+                        building_number=building,
+                        position=position if position else None,
+                        ip=ip,
+                        mqtt_topic=mqtt_topic,
+                        visible=False  # 默认不可见，需要手动设置
+                    )
+                    
+                    devices_to_add.append(device)
+                    
+                except Exception as e:
+                    invalid_devices.append(f"第{i+1}行: 处理错误 - {str(e)}")
+            
+            # 批量添加设备
+            added_count = 0
+            if devices_to_add:
+                try:
+                    db.session.add_all(devices_to_add)
+                    db.session.commit()
+                    added_count = len(devices_to_add)
+                    logger.info(f"批量导入 {added_count} 个设备成功")
+                except Exception as e:
+                    db.session.rollback()
+                    flash(f'批量导入失败: {str(e)}', 'error')
+                    return redirect(url_for('device.import_devices'))
+            
+            # 生成结果报告
+            total_count = len(devices_list)
+            skipped_count = len(skipped_devices)
+            invalid_count = len(invalid_devices)
+            
+            result_message = f"导入完成！总计 {total_count} 条记录，"
+            result_message += f"成功导入 {added_count} 个设备"
+            
+            if skipped_count > 0:
+                result_message += f"，跳过 {skipped_count} 个重复设备"
+            
+            if invalid_count > 0:
+                result_message += f"，{invalid_count} 条记录格式错误"
+            
+            flash(result_message, 'success' if added_count > 0 else 'warning')
+            
+            # 显示详细信息
+            if skipped_devices:
+                flash(f"跳过的重复设备: {', '.join(skipped_devices[:10])}" + 
+                     ("..." if len(skipped_devices) > 10 else ""), 'info')
+            
+            if invalid_devices:
+                flash(f"无效记录: {'; '.join(invalid_devices[:5])}" + 
+                     ("..." if len(invalid_devices) > 5 else ""), 'warning')
+            
+            return redirect(url_for('device.devices'))
+            
+        except Exception as e:
+            logger.error(f"批量导入设备失败: {str(e)}")
+            flash(f'导入失败: {str(e)}', 'error')
+            return redirect(url_for('device.import_devices'))
+    
+    return _import_devices()
+
 @device_bp.route('/add_device', methods=['GET', 'POST'])
 def add_device():
     """添加设备"""

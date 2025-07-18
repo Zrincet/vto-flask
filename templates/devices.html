@@ -5,10 +5,16 @@
 {% block page_title %}设备管理{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('device.add_device') }}" class="btn btn-primary btn-sm">
-    <i class="fas fa-plus"></i>
-    <span class="d-none d-sm-inline">添加设备</span>
-</a>
+<div class="btn-group">
+    <a href="{{ url_for('device.import_devices') }}" class="btn btn-outline-info btn-sm">
+        <i class="fas fa-upload"></i>
+        <span class="d-none d-sm-inline">批量导入</span>
+    </a>
+    <a href="{{ url_for('device.add_device') }}" class="btn btn-primary btn-sm">
+        <i class="fas fa-plus"></i>
+        <span class="d-none d-sm-inline">添加设备</span>
+    </a>
+</div>
 {% endblock %}
 
 {% block content %}

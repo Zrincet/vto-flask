@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+
+{% block title %}批量导入设备 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}批量导入设备{% endblock %}
+
+{% block topbar_actions %}
+<div class="btn-group">
+    <a href="{{ url_for('device.devices') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-arrow-left"></i>
+        <span class="d-none d-sm-inline">返回设备列表</span>
+    </a>
+    <a href="/doc/preset_devices.json" class="btn btn-outline-info btn-sm" download>
+        <i class="fas fa-download"></i>
+        <span class="d-none d-sm-inline">下载示例文件</span>
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="import-devices-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+        <h1>批量导入设备</h1>
+        <p class="page-subtitle">上传JSON格式的设备配置文件，批量添加多个设备</p>
+    </div>
+    
+    <!-- 使用说明 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-info-circle text-info"></i>
+                使用说明
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>文件格式要求</h6>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-check text-success"></i> JSON格式文件，UTF-8编码</li>
+                        <li><i class="fas fa-check text-success"></i> 必须包含"devices"数组字段</li>
+                        <li><i class="fas fa-check text-success"></i> 每个设备包含ip、section、building字段</li>
+                        <li><i class="fas fa-check text-success"></i> position字段可选（位置信息）</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6>导入规则</h6>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-info text-primary"></i> 重复IP地址的设备将被跳过</li>
+                        <li><i class="fas fa-info text-primary"></i> 自动生成设备名称和MQTT主题</li>
+                        <li><i class="fas fa-info text-primary"></i> 新导入设备默认为不可见状态</li>
+                        <li><i class="fas fa-info text-primary"></i> 导入后可在设备管理中调整</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JSON格式示例 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-code text-primary"></i>
+                JSON格式示例
+            </h5>
+        </div>
+        <div class="card-body">
+            <pre class="bg-light p-3 rounded"><code>{
+  "description": "VTO门禁设备预设数据",
+  "version": "1.0",
+  "devices": [
+    {
+      "ip": "172.16.11.1",
+      "section": "01",
+      "building": "001", 
+      "position": "1"
+    },
+    {
+      "ip": "172.16.11.2",
+      "section": "01",
+      "building": "001",
+      "position": "2"
+    }
+  ]
+}</code></pre>
+        </div>
+    </div>
+    
+    <!-- 文件上传表单 -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-upload text-success"></i>
+                上传设备文件
+            </h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data" class="import-form">
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-content">
+                                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                                <h5>选择或拖拽JSON文件到此处</h5>
+                                <p class="text-muted">支持JSON格式，最大10MB</p>
+                                <input type="file" id="deviceFile" name="device_file" accept=".json" class="file-input" required>
+                                <label for="deviceFile" class="btn btn-primary">
+                                    <i class="fas fa-folder-open"></i>
+                                    选择文件
+                                </label>
+                            </div>
+                            <div class="upload-preview" id="uploadPreview" style="display: none;">
+                                <div class="file-info">
+                                    <i class="fas fa-file-code"></i>
+                                    <span class="file-name" id="fileName"></span>
+                                    <span class="file-size" id="fileSize"></span>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFile()">
+                                    <i class="fas fa-times"></i>
+                                    移除
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions mt-4 text-center">
+                            <button type="submit" class="btn btn-success btn-lg" id="submitBtn" disabled>
+                                <i class="fas fa-upload"></i>
+                                开始导入设备
+                            </button>
+                            <a href="{{ url_for('device.devices') }}" class="btn btn-secondary btn-lg ms-3">
+                                <i class="fas fa-times"></i>
+                                取消
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.import-devices-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.page-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.page-header h1 {
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.page-subtitle {
+    color: #666;
+    font-size: 1.1rem;
+}
+
+.upload-area {
+    border: 2px dashed #ddd;
+    border-radius: 10px;
+    padding: 40px 20px;
+    text-align: center;
+    transition: all 0.3s ease;
+    background: #fafafa;
+}
+
+.upload-area.dragover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.upload-content {
+    margin: 20px 0;
+}
+
+.upload-icon {
+    font-size: 3rem;
+    color: #007bff;
+    margin-bottom: 20px;
+}
+
+.file-input {
+    display: none;
+}
+
+.upload-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px;
+    background: #e8f5e8;
+    border-radius: 5px;
+    margin-top: 20px;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.file-info i {
+    color: #28a745;
+    font-size: 1.2rem;
+}
+
+.file-name {
+    font-weight: 500;
+    color: #333;
+}
+
+.file-size {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+pre code {
+    font-size: 0.9rem;
+    color: #333;
+}
+
+.card-title i {
+    margin-right: 8px;
+}
+
+@media (max-width: 768px) {
+    .import-devices-container {
+        padding: 10px;
+    }
+    
+    .upload-area {
+        padding: 20px 10px;
+    }
+    
+    .upload-icon {
+        font-size: 2rem;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('deviceFile');
+    const uploadPreview = document.getElementById('uploadPreview');
+    const submitBtn = document.getElementById('submitBtn');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    
+    // 文件拖拽上传
+    uploadArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+    
+    uploadArea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+    });
+    
+    uploadArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
+    
+    // 文件选择
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            handleFile(file);
+        }
+    });
+    
+    // 处理文件
+    function handleFile(file) {
+        // 检查文件类型
+        if (!file.name.toLowerCase().endsWith('.json')) {
+            showMessage('error', '请选择JSON格式的文件');
+            return;
+        }
+        
+        // 检查文件大小 (10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            showMessage('error', '文件大小不能超过10MB');
+            return;
+        }
+        
+        // 显示文件信息
+        fileName.textContent = file.name;
+        fileSize.textContent = formatFileSize(file.size);
+        
+        // 显示预览区域
+        uploadPreview.style.display = 'flex';
+        submitBtn.disabled = false;
+        
+        // 设置文件到input
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInput.files = dt.files;
+    }
+    
+    // 清除文件
+    window.clearFile = function() {
+        fileInput.value = '';
+        uploadPreview.style.display = 'none';
+        submitBtn.disabled = true;
+    };
+    
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    // 表单提交处理
+    document.querySelector('.import-form').addEventListener('submit', function(e) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在导入...';
+    });
+});
+
+// 消息显示函数
+function showMessage(type, message) {
+    // 创建消息元素
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    // 插入到页面顶部
+    const container = document.querySelector('.import-devices-container');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+</script>
+{% endblock %} 
