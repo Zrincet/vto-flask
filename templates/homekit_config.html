@@ -1,0 +1,467 @@
+{% extends "base.html" %}
+
+{% block title %}HomeKit配置 - VTO设备管理系统{% endblock %}
+
+{% block page_title %}HomeKit配置{% endblock %}
+
+{% block topbar_actions %}
+<div class="btn-group">
+    {% if homekit_config and homekit_config.enabled %}
+    <button type="button" class="btn btn-outline-warning btn-sm" onclick="restartHomeKitService()">
+        <i class="fas fa-redo"></i>
+        <span class="d-none d-sm-inline">重启服务</span>
+    </button>
+    {% endif %}
+    <button type="button" class="btn btn-outline-success btn-sm" onclick="generatePin()">
+        <i class="fas fa-random"></i>
+        <span class="d-none d-sm-inline">生成PIN码</span>
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="homekit-config-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+        <h1>HomeKit配置</h1>
+        <p class="page-subtitle">配置HomeKit桥接服务，将门禁设备集成到苹果家庭应用</p>
+    </div>
+    
+    <!-- 服务状态概览 -->
+    <div class="status-overview mb-4">
+        <div class="row g-3">
+            <div class="col-12 col-md-6 col-lg-3">
+                <div class="status-card">
+                    <div class="status-icon">
+                        <i class="fas fa-home {{ 'text-success' if homekit_status.running else 'text-secondary' }}"></i>
+                    </div>
+                    <div class="status-content">
+                        <div class="status-value">{{ '运行中' if homekit_status.running else '已停止' }}</div>
+                        <div class="status-label">HomeKit服务</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-md-6 col-lg-3">
+                <div class="status-card">
+                    <div class="status-icon">
+                        <i class="fas fa-lock text-primary"></i>
+                    </div>
+                    <div class="status-content">
+                        <div class="status-value">{{ homekit_status.device_count or 0 }}</div>
+                        <div class="status-label">已集成设备</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-md-6 col-lg-3">
+                <div class="status-card">
+                    <div class="status-icon">
+                        <i class="fas fa-wifi text-info"></i>
+                    </div>
+                    <div class="status-content">
+                        <div class="status-value">{{ homekit_status.port or '-' }}</div>
+                        <div class="status-label">服务端口</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-12 col-md-6 col-lg-3">
+                <div class="status-card">
+                    <div class="status-icon">
+                        <i class="fas fa-bridge-water text-warning"></i>
+                    </div>
+                    <div class="status-content">
+                        <div class="status-value">{{ homekit_status.bridge_name or '-' }}</div>
+                        <div class="status-label">桥接器名称</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- HomeKit桥接器配置 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-bridge-water text-primary me-2"></i>
+                桥接器配置
+            </h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('save_homekit_config') }}" class="homekit-config-form">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label for="bridge_name" class="form-label">桥接器名称</label>
+                        <input type="text" class="form-control" id="bridge_name" name="bridge_name" 
+                               value="{{ homekit_config.bridge_name if homekit_config else 'VTO门禁桥接器' }}" 
+                               placeholder="VTO门禁桥接器" required>
+                        <div class="form-text">在家庭应用中显示的名称</div>
+                    </div>
+                    
+                    <div class="col-12 col-md-6">
+                        <label for="bridge_port" class="form-label">服务端口</label>
+                        <input type="number" class="form-control" id="bridge_port" name="bridge_port" 
+                               value="{{ homekit_config.bridge_port if homekit_config else 51827 }}" 
+                               min="1024" max="65535" placeholder="51827" required>
+                        <div class="form-text">HomeKit服务监听端口 (1024-65535)</div>
+                    </div>
+                    
+                    <div class="col-12">
+                        <label for="bridge_pin" class="form-label">配对PIN码</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="bridge_pin" name="bridge_pin" 
+                                   value="{{ homekit_config.bridge_pin if homekit_config else '' }}" 
+                                   pattern="[0-9]{8}" placeholder="12345678" required maxlength="8">
+                            <button type="button" class="btn btn-outline-secondary" onclick="generatePin()">
+                                <i class="fas fa-random"></i> 生成
+                            </button>
+                        </div>
+                        <div class="form-text">8位数字PIN码，用于HomeKit配对认证</div>
+                    </div>
+                    
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enabled" name="enabled" 
+                                   {{ 'checked' if homekit_config and homekit_config.enabled }}>
+                            <label class="form-check-label" for="enabled">
+                                启用HomeKit桥接服务
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle text-primary"></i>
+                            启用后可在苹果家庭应用中添加和控制门禁设备
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i>
+                        保存配置
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- HomeKit配对二维码 -->
+    {% if homekit_config and homekit_config.enabled and homekit_status.running %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-qrcode text-primary me-2"></i>
+                配对二维码
+            </h5>
+        </div>
+        <div class="card-body text-center">
+            <div id="qr-code-container" class="mb-3">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">生成二维码中...</span>
+                    </div>
+                    <p class="mt-2 text-muted">正在生成配对二维码...</p>
+                </div>
+            </div>
+            
+            <div id="setup-code-container" class="alert alert-info" style="display: none;">
+                <h6><i class="fas fa-key me-2"></i>配对PIN码</h6>
+                <div class="setup-code">
+                    <span id="setup-code-display" class="fw-bold fs-4"></span>
+                </div>
+                <small class="text-muted">在iPhone家庭应用中手动添加时使用此PIN码</small>
+            </div>
+            
+            <div class="qr-instructions">
+                <h6><i class="fas fa-mobile-alt me-2"></i>使用方法</h6>
+                <ol class="text-start">
+                    <li>打开iPhone上的"家庭"应用</li>
+                    <li>点击右上角的"+"号</li>
+                    <li>选择"添加配件"</li>
+                    <li>使用摄像头扫描上方二维码，或手动输入PIN码</li>
+                    <li>按照提示完成配对</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- HomeKit设备管理 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-lock text-primary me-2"></i>
+                HomeKit设备
+                {% if homekit_devices %}
+                <span class="badge badge-secondary ms-2">{{ homekit_devices|length }}</span>
+                {% endif %}
+            </h5>
+            {% if available_devices %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+                <i class="fas fa-plus"></i> 添加设备
+            </button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if homekit_devices %}
+            <div class="devices-grid">
+                {% for hk_device in homekit_devices %}
+                <div class="device-card {{ 'enabled' if hk_device.enabled else 'disabled' }}">
+                    <div class="device-header">
+                        <div class="device-name">
+                            <i class="fas fa-lock me-2"></i>
+                            {{ hk_device.homekit_name }}
+                        </div>
+                        <div class="device-status">
+                            <span class="badge {{ 'badge-success' if hk_device.enabled else 'badge-secondary' }}">
+                                {{ '启用' if hk_device.enabled else '禁用' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="device-info">
+                        <div class="info-item">
+                            <span class="info-label">关联设备:</span>
+                            <span class="info-value">{{ hk_device.device.name if hk_device.device else '未知' }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">配件ID:</span>
+                            <span class="info-value">{{ hk_device.homekit_aid }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">设备IP:</span>
+                            <span class="info-value">{{ hk_device.device.ip if hk_device.device else '未知' }}</span>
+                        </div>
+                    </div>
+                    <div class="device-actions">
+                        <form method="POST" action="{{ url_for('toggle_homekit_device', homekit_device_id=hk_device.id) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-sm {{ 'btn-warning' if hk_device.enabled else 'btn-success' }}" 
+                                    title="{{ '禁用' if hk_device.enabled else '启用' }}">
+                                <i class="fas {{ 'fa-pause' if hk_device.enabled else 'fa-play' }}"></i>
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('remove_homekit_device', homekit_device_id=hk_device.id) }}" 
+                              style="display: inline;" onsubmit="return confirm('确定要移除此设备吗？')">
+                            <button type="submit" class="btn btn-sm btn-danger" title="移除">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-icon">
+                    <i class="fas fa-home"></i>
+                </div>
+                <div class="empty-text">
+                    <h6>暂无HomeKit设备</h6>
+                    <p>点击"添加设备"按钮将门禁设备添加到HomeKit</p>
+                </div>
+                {% if available_devices %}
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+                    <i class="fas fa-plus"></i> 添加第一个设备
+                </button>
+                {% else %}
+                <p class="text-muted">请先在设备管理中添加并设为可见的设备</p>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- 使用说明 -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-question-circle text-info me-2"></i>
+                使用说明
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <div class="col-12 col-md-6">
+                    <h6><i class="fas fa-cog me-2"></i>配置步骤</h6>
+                    <ol class="instruction-list">
+                        <li>设置桥接器名称和PIN码</li>
+                        <li>启用HomeKit桥接服务</li>
+                        <li>添加需要控制的门禁设备</li>
+                        <li>在iPhone家庭应用中扫描配对</li>
+                    </ol>
+                </div>
+                <div class="col-12 col-md-6">
+                    <h6><i class="fas fa-mobile-alt me-2"></i>配对方法</h6>
+                    <ol class="instruction-list">
+                        <li>打开iPhone"家庭"应用</li>
+                        <li>点击右上角"+"添加配件</li>
+                        <li>选择"扫描二维码"或"没有代码或无法扫描"</li>
+                        <li>输入8位PIN码完成配对</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-lightbulb me-2"></i>
+                <strong>提示:</strong> 
+                配对成功后，门禁设备将显示为智能锁具，可通过Siri语音控制、自动化场景或远程控制。
+                例如："嘿Siri，打开前门"。
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加设备模态框 -->
+{% if available_devices %}
+<div class="modal fade" id="addDeviceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加HomeKit设备</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('add_homekit_device') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="device_id" class="form-label">选择设备</label>
+                        <select class="form-select" id="device_id" name="device_id" required>
+                            <option value="">请选择要添加的设备</option>
+                            {% for device in available_devices %}
+                            {% set already_added = homekit_devices | selectattr('device_id', 'equalto', device.id) | list %}
+                            {% if not already_added %}
+                            <option value="{{ device.id }}">{{ device.name }} ({{ device.ip }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="homekit_name" class="form-label">HomeKit显示名称</label>
+                        <input type="text" class="form-control" id="homekit_name" name="homekit_name" 
+                               placeholder="留空则使用设备名称">
+                        <div class="form-text">在家庭应用中显示的设备名称</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">添加设备</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 生成PIN码
+function generatePin() {
+    fetch('{{ url_for("generate_homekit_pin") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('bridge_pin').value = data.pin;
+        } else {
+            alert('生成PIN码失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('生成PIN码失败');
+    });
+}
+
+// 重启HomeKit服务
+function restartHomeKitService() {
+    if (confirm('确定要重启HomeKit服务吗？这会断开所有现有连接。')) {
+        fetch('{{ url_for("restart_homekit_service") }}', {
+            method: 'POST'
+        })
+        .then(() => {
+            location.reload();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('重启服务失败');
+        });
+    }
+}
+
+// 自动填充设备名称
+document.getElementById('device_id').addEventListener('change', function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const deviceName = selectedOption.text.split(' (')[0]; // 提取设备名称
+    const homekitNameInput = document.getElementById('homekit_name');
+    if (homekitNameInput.value === '') {
+        homekitNameInput.value = deviceName;
+    }
+});
+
+// 加载HomeKit配对二维码
+function loadHomeKitQRCode() {
+    const container = document.getElementById('qr-code-container');
+    const setupCodeContainer = document.getElementById('setup-code-container');
+    
+    if (!container) return;
+    
+    fetch('{{ url_for("homekit_qr_code") }}')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.data) {
+            if (data.data.qr_code_data) {
+                // 显示二维码
+                container.innerHTML = `
+                    <div class="qr-code-display">
+                        <img src="data:image/png;base64,${data.data.qr_code_data}" 
+                             alt="HomeKit配对二维码" 
+                             class="img-fluid" 
+                             style="max-width: 300px; border: 1px solid #ddd; border-radius: 8px;">
+                    </div>
+                `;
+            } else {
+                // 仅显示PIN码
+                container.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        二维码功能不可用，请使用PIN码手动配对
+                    </div>
+                `;
+            }
+            
+            // 显示PIN码
+            if (data.data.setup_code) {
+                document.getElementById('setup-code-display').textContent = data.data.setup_code;
+                setupCodeContainer.style.display = 'block';
+            }
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    ${data.message || '无法获取配对信息'}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error loading QR code:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                加载二维码失败，请稍后重试
+            </div>
+        `;
+    });
+}
+
+// 页面加载完成后加载二维码
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('qr-code-container')) {
+        loadHomeKitQRCode();
+    }
+});
+</script>
+{% endblock %} 

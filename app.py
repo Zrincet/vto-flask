@@ -96,6 +96,37 @@ class BemfaKey(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class HomeKitConfig(db.Model):
+    """HomeKit配置模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    bridge_name = db.Column(db.String(100), default='VTO门禁桥接器')  # 桥接器名称
+    bridge_pin = db.Column(db.String(20), nullable=False)  # 配对PIN码
+    bridge_port = db.Column(db.Integer, default=51827)  # HomeKit服务端口
+    enabled = db.Column(db.Boolean, default=False)  # 是否启用HomeKit服务
+    manufacturer = db.Column(db.String(100), default='VTO Systems')  # 制造商
+    model = db.Column(db.String(100), default='Door Lock Bridge')  # 型号
+    firmware_version = db.Column(db.String(50), default='1.0.0')  # 固件版本
+    serial_number = db.Column(db.String(100), nullable=True)  # 序列号
+    setup_id = db.Column(db.String(4), nullable=True)  # HomeKit设置ID
+    category = db.Column(db.Integer, default=2)  # HomeKit类别（2=桥接器）
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class HomeKitDevice(db.Model):
+    """HomeKit设备桥接模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)  # 关联的VTO设备
+    homekit_aid = db.Column(db.Integer, unique=True, nullable=True)  # HomeKit配件ID
+    homekit_name = db.Column(db.String(100), nullable=False)  # HomeKit中显示的名称
+    enabled = db.Column(db.Boolean, default=True)  # 是否启用HomeKit集成
+    lock_current_state = db.Column(db.Integer, default=1)  # 锁当前状态 (0=未知, 1=锁定, 0=解锁)
+    lock_target_state = db.Column(db.Integer, default=1)  # 锁目标状态 (0=解锁, 1=锁定)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联到Device表
+    device = db.relationship('Device', backref='homekit_device', lazy=True)
+
 # 大华VTO开锁类
 class DahuaLogin:
     def __init__(self, ip, username="admin", password="admin123", port=80):
@@ -576,6 +607,359 @@ class MQTTManager:
                 client.unsubscribe_device_topic(topic)
             except Exception as e:
                 logger.error(f"客户端 {client_id} 取消订阅主题 {topic} 失败: {str(e)}")
+
+# HomeKit工具函数
+def format_homekit_pincode(pin_digits):
+    """将8位数字PIN码转换为HomeKit格式 (xxx-xx-xxx)"""
+    if not pin_digits or len(pin_digits) != 8:
+        raise ValueError("PIN码必须是8位数字")
+    
+    return f"{pin_digits[:3]}-{pin_digits[3:5]}-{pin_digits[5:]}"
+
+def parse_homekit_pincode(formatted_pin):
+    """从HomeKit格式PIN码提取8位数字"""
+    if not formatted_pin:
+        return None
+    
+    return formatted_pin.replace('-', '')
+
+# HomeKit桥接服务管理类
+class HomeKitManager:
+    """HomeKit桥接服务管理器"""
+    def __init__(self):
+        self.bridge = None
+        self.accessories = {}  # {device_id: accessory}
+        self.is_running = False
+        self.driver = None
+        self._homekit_thread = None
+        
+    def start_homekit_service(self):
+        """启动HomeKit桥接服务"""
+        try:
+            # 动态导入HAP-python相关模块
+            from pyhap.accessory import Bridge
+            from pyhap.accessory_driver import AccessoryDriver
+            from pyhap.const import CATEGORY_BRIDGE
+            import pyhap.loader as loader
+            
+            with app.app_context():
+                # 获取HomeKit配置
+                homekit_config = HomeKitConfig.query.first()
+                if not homekit_config or not homekit_config.enabled:
+                    logger.info("HomeKit服务未启用")
+                    return False
+                
+                # 检查PIN码格式
+                if not homekit_config.bridge_pin or len(homekit_config.bridge_pin) != 8:
+                    logger.error("HomeKit PIN码格式错误，必须是8位数字")
+                    return False
+                
+                # 创建临时AccessoryDriver用于初始化Bridge
+                from pyhap.accessory_driver import AccessoryDriver
+                from pyhap.loader import get_loader
+                
+                # 先创建一个AccessoryDriver（暂不传入accessory）
+                # 将8位数字PIN码转换为HAP-python要求的格式 (xxx-xx-xxx)
+                formatted_pin = format_homekit_pincode(homekit_config.bridge_pin)
+                self.driver = AccessoryDriver(
+                    port=homekit_config.bridge_port,
+                    pincode=formatted_pin.encode(),
+                    persist_file='homekit_state.json'
+                )
+                
+                # 创建桥接器，传入driver
+                self.bridge = Bridge(
+                    driver=self.driver,
+                    display_name=homekit_config.bridge_name
+                )
+                
+                # 将Bridge设置为driver的accessory
+                self.driver.accessory = self.bridge
+                
+                # 添加设备配件
+                self._add_device_accessories()
+                
+                # 在单独的线程中启动HomeKit服务
+                def run_homekit():
+                    try:
+                        logger.info(f"HomeKit桥接器正在启动，端口: {homekit_config.bridge_port}")
+                        logger.info(f"配对PIN码: {formatted_pin}")
+                        self.driver.start()
+                    except Exception as e:
+                        logger.error(f"HomeKit服务运行错误: {str(e)}")
+                
+                self._homekit_thread = threading.Thread(target=run_homekit, daemon=True)
+                self._homekit_thread.start()
+                
+                self.is_running = True
+                logger.info("HomeKit桥接服务启动成功")
+                return True
+                
+        except ImportError as e:
+            logger.error(f"HomeKit依赖包未安装: {str(e)}")
+            return False
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logger.error(f"启动HomeKit服务失败: {str(e)}")
+            return False
+    
+    def stop_homekit_service(self):
+        """停止HomeKit桥接服务"""
+        try:
+            if self.driver:
+                self.driver.stop()
+                self.driver = None
+            
+            if self._homekit_thread and self._homekit_thread.is_alive():
+                # 等待线程结束（最多等待5秒）
+                self._homekit_thread.join(timeout=5)
+            
+            self.bridge = None
+            self.accessories.clear()
+            self.is_running = False
+            logger.info("HomeKit桥接服务已停止")
+            return True
+            
+        except Exception as e:
+            logger.error(f"停止HomeKit服务失败: {str(e)}")
+            return False
+    
+    def restart_homekit_service(self):
+        """重启HomeKit桥接服务"""
+        self.stop_homekit_service()
+        time.sleep(2)  # 等待完全停止
+        return self.start_homekit_service()
+    
+    def _add_device_accessories(self):
+        """添加设备配件到桥接器"""
+        try:
+            from pyhap.accessory import Accessory
+            from pyhap.const import CATEGORY_DOOR_LOCK
+            
+            # 获取启用HomeKit的设备
+            homekit_devices = HomeKitDevice.query.filter_by(enabled=True).all()
+            
+            for hk_device in homekit_devices:
+                device = hk_device.device
+                if device and device.visible:
+                    # 创建门锁配件
+                    accessory = DoorLockAccessory(
+                        driver=self.driver,
+                        display_name=hk_device.homekit_name,
+                        device_id=device.id
+                    )
+                    
+                    # 添加到桥接器
+                    self.bridge.add_accessory(accessory.accessory)
+                    self.accessories[device.id] = accessory
+                    
+                    logger.info(f"添加HomeKit设备: {hk_device.homekit_name} (ID: {device.id})")
+            
+        except Exception as e:
+            logger.error(f"添加设备配件失败: {str(e)}")
+    
+    def add_device_accessory(self, device_id):
+        """动态添加设备配件"""
+        try:
+            with app.app_context():
+                hk_device = HomeKitDevice.query.filter_by(device_id=device_id, enabled=True).first()
+                if not hk_device:
+                    return False
+                
+                device = hk_device.device
+                if not device or not device.visible:
+                    return False
+                
+                # 如果服务正在运行且设备未添加
+                if self.is_running and device_id not in self.accessories:
+                    from pyhap.accessory import Accessory
+                    from pyhap.const import CATEGORY_DOOR_LOCK
+                    
+                    accessory = DoorLockAccessory(
+                        driver=self.driver,
+                        display_name=hk_device.homekit_name,
+                        device_id=device.id
+                    )
+                    
+                    self.bridge.add_accessory(accessory.accessory)
+                    self.accessories[device.id] = accessory
+                    
+                    logger.info(f"动态添加HomeKit设备: {hk_device.homekit_name}")
+                    return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"动态添加设备配件失败: {str(e)}")
+            return False
+    
+    def remove_device_accessory(self, device_id):
+        """动态移除设备配件"""
+        try:
+            if device_id in self.accessories:
+                # HAP-python目前不支持动态移除配件，建议重启服务
+                logger.info(f"移除HomeKit设备 (ID: {device_id})，建议重启HomeKit服务")
+                del self.accessories[device_id]
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"移除设备配件失败: {str(e)}")
+            return False
+    
+    def get_service_status(self):
+        """获取HomeKit服务状态"""
+        return {
+            'running': self.is_running,
+            'device_count': len(self.accessories),
+            'bridge_name': self.bridge.display_name if self.bridge else None,
+            'port': self.driver.state.port if self.driver else None
+        }
+    
+    def get_pairing_qr_code(self):
+        """获取配对二维码数据"""
+        try:
+            if not self.is_running or not self.bridge:
+                return None
+            
+            # 生成XHM URI
+            from pyhap import SUPPORT_QR_CODE
+            if SUPPORT_QR_CODE:
+                import base64
+                import io
+                from pyqrcode import QRCode
+                
+                xhm_uri = self.bridge.xhm_uri()
+                
+                # 生成二维码
+                qr = QRCode(xhm_uri)
+                buffer = io.BytesIO()
+                qr.png(buffer, scale=4)
+                qr_data = base64.b64encode(buffer.getvalue()).decode()
+                
+                return {
+                    'qr_code_data': qr_data,
+                    'setup_code': self.driver.state.pincode.decode(),
+                    'xhm_uri': xhm_uri
+                }
+            else:
+                return {
+                    'setup_code': self.driver.state.pincode.decode() if self.driver else None
+                }
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logger.error(f"生成配对二维码失败: {str(e)}")
+            return None
+
+# 门锁配件类
+class DoorLockAccessory:
+    """HomeKit门锁配件"""
+    def __init__(self, driver, display_name, device_id):
+        try:
+            from pyhap.accessory import Accessory
+            from pyhap.const import CATEGORY_DOOR_LOCK
+            
+            # 继承Accessory类
+            class LockAccessory(Accessory):
+                category = CATEGORY_DOOR_LOCK
+                
+                def __init__(self, driver, display_name, device_id):
+                    super().__init__(driver, display_name)
+                    self.device_id = device_id
+                    
+                    # 添加锁定机制服务
+                    serv_lock = driver.loader.get_service('LockMechanism')
+                    self.add_service(serv_lock)
+                    
+                    # 锁定当前状态特征 (只读)
+                    self.char_lock_current_state = serv_lock.get_characteristic('LockCurrentState')
+                    
+                    # 锁定目标状态特征 (可读写)
+                    self.char_lock_target_state = serv_lock.get_characteristic('LockTargetState')
+                    self.char_lock_target_state.setter_callback = self.set_lock_state
+                    
+                    # 设置初始状态
+                    self.char_lock_current_state.set_value(1)  # 1=锁定
+                    self.char_lock_target_state.set_value(1)  # 1=锁定
+                
+                def set_lock_state(self, value):
+                    """设置锁状态"""
+                    try:
+                        with app.app_context():
+                            # 如果目标状态是解锁 (0)
+                            if value == 0:
+                                logger.info(f"HomeKit请求解锁设备 ID: {self.device_id}")
+                                
+                                # 执行开锁操作
+                                result = self._execute_unlock()
+                                
+                                if result:
+                                    # 开锁成功，更新状态
+                                    self.char_lock_current_state.set_value(0)  # 解锁
+                                    logger.info(f"HomeKit设备 {self.device_id} 解锁成功")
+                                    
+                                    # 延迟自动锁定（模拟门锁行为）
+                                    def auto_lock():
+                                        time.sleep(5)  # 5秒后自动锁定
+                                        self.char_lock_current_state.set_value(1)
+                                        self.char_lock_target_state.set_value(1)
+                                        logger.info(f"HomeKit设备 {self.device_id} 自动锁定")
+                                    
+                                    threading.Thread(target=auto_lock, daemon=True).start()
+                                else:
+                                    # 开锁失败，保持锁定状态
+                                    logger.error(f"HomeKit设备 {self.device_id} 解锁失败")
+                                    self.char_lock_target_state.set_value(1)  # 重置为锁定
+                            else:
+                                # 目标状态是锁定 (1)，直接设置
+                                self.char_lock_current_state.set_value(1)
+                                logger.info(f"HomeKit设备 {self.device_id} 设置为锁定状态")
+                    
+                    except Exception as e:
+                        logger.error(f"HomeKit设置锁状态失败: {str(e)}")
+                        # 出错时重置为锁定状态
+                        self.char_lock_current_state.set_value(1)
+                        self.char_lock_target_state.set_value(1)
+                
+                def _execute_unlock(self):
+                    """执行实际的开锁操作"""
+                    try:
+                        device = Device.query.get(self.device_id)
+                        if not device:
+                            logger.error(f"设备不存在: {self.device_id}")
+                            return False
+                        
+                        # 使用DahuaLogin执行开锁
+                        dahua_client = DahuaLogin(
+                            ip=device.ip,
+                            username=device.username,
+                            password=device.password
+                        )
+                        
+                        result = dahua_client.execute_door_open_flow()
+                        
+                        if result["success"]:
+                            # 更新数据库中的开锁时间
+                            device.last_unlock_time = datetime.utcnow()
+                            db.session.commit()
+                            return True
+                        else:
+                            logger.error(f"开锁失败: {result.get('message', '未知错误')}")
+                            return False
+                    
+                    except Exception as e:
+                        logger.error(f"执行开锁操作失败: {str(e)}")
+                        return False
+            
+            # 创建配件实例
+            self.accessory = LockAccessory(driver, display_name, device_id)
+            
+        except Exception as e:
+            logger.error(f"创建门锁配件失败: {str(e)}")
+            raise
 
 # 巴法云API管理类
 class BemfaAPI:
@@ -1339,6 +1723,9 @@ bemfa_api = BemfaAPI()
 # 全局MQTT管理器
 mqtt_manager = MQTTManager()
 
+# 全局HomeKit管理器
+homekit_manager = HomeKitManager()
+
 # 全局视频流管理器
 video_manager = VideoStreamManager()
 
@@ -1652,11 +2039,19 @@ def settings():
     # 获取MQTT连接状态
     mqtt_status = mqtt_manager.get_connection_status()
     
+    # 获取HomeKit配置
+    homekit_config = HomeKitConfig.query.first()
+    
+    # 获取HomeKit服务状态
+    homekit_status = homekit_manager.get_service_status()
+    
     return render_template('settings.html',
                          mqtt_enabled=mqtt_enabled.value == 'true' if mqtt_enabled else False,
                          mqtt_connected=mqtt_manager.is_connected,
                          bemfa_keys=bemfa_keys,
-                         mqtt_status=mqtt_status)
+                         mqtt_status=mqtt_status,
+                         homekit_config=homekit_config,
+                         homekit_status=homekit_status)
 
 @app.route('/save_settings', methods=['POST'])
 @login_required
@@ -2011,6 +2406,269 @@ def sync_bemfa_devices():
     except Exception as e:
         logger.error(f"手动同步巴法云失败: {str(e)}")
         return jsonify({"success": False, "message": f"同步失败: {str(e)}"})
+
+# HomeKit 管理路由
+@app.route('/homekit_config')
+@login_required
+def homekit_config():
+    """HomeKit配置页面"""
+    homekit_config = HomeKitConfig.query.first()
+    homekit_devices = HomeKitDevice.query.all()
+    available_devices = Device.query.filter_by(visible=True).all()
+    homekit_status = homekit_manager.get_service_status()
+    
+    return render_template('homekit_config.html',
+                         homekit_config=homekit_config,
+                         homekit_devices=homekit_devices,
+                         available_devices=available_devices,
+                         homekit_status=homekit_status)
+
+@app.route('/save_homekit_config', methods=['POST'])
+@login_required
+def save_homekit_config():
+    """保存HomeKit配置"""
+    try:
+        bridge_name = request.form.get('bridge_name', 'VTO门禁桥接器').strip()
+        bridge_pin = request.form.get('bridge_pin', '').strip()
+        bridge_port = int(request.form.get('bridge_port', 51827))
+        enabled = request.form.get('enabled') == 'on'
+        
+        # 验证PIN码格式
+        if not bridge_pin.isdigit() or len(bridge_pin) != 8:
+            flash('HomeKit PIN码必须是8位数字', 'error')
+            return redirect(url_for('homekit_config'))
+        
+        # 验证端口范围
+        if not (1024 <= bridge_port <= 65535):
+            flash('端口号必须在1024-65535之间', 'error')
+            return redirect(url_for('homekit_config'))
+        
+        # 获取或创建配置
+        homekit_config = HomeKitConfig.query.first()
+        if homekit_config:
+            # 更新现有配置
+            old_enabled = homekit_config.enabled
+            homekit_config.bridge_name = bridge_name
+            homekit_config.bridge_pin = bridge_pin
+            homekit_config.bridge_port = bridge_port
+            homekit_config.enabled = enabled
+            homekit_config.updated_at = datetime.utcnow()
+        else:
+            # 创建新配置
+            import secrets
+            homekit_config = HomeKitConfig(
+                bridge_name=bridge_name,
+                bridge_pin=bridge_pin,
+                bridge_port=bridge_port,
+                enabled=enabled,
+                serial_number=secrets.token_hex(6).upper()  # 生成随机序列号
+            )
+            db.session.add(homekit_config)
+            old_enabled = False
+        
+        db.session.commit()
+        
+        # 管理HomeKit服务
+        if enabled and not homekit_manager.is_running:
+            success = homekit_manager.start_homekit_service()
+            if success:
+                flash('HomeKit配置保存成功，服务已启动', 'success')
+            else:
+                flash('HomeKit配置保存成功，但服务启动失败，请检查配置', 'warning')
+        elif not enabled and homekit_manager.is_running:
+            success = homekit_manager.stop_homekit_service()
+            if success:
+                flash('HomeKit配置保存成功，服务已停止', 'success')
+            else:
+                flash('HomeKit配置保存成功，但服务停止失败', 'warning')
+        elif enabled and homekit_manager.is_running and old_enabled:
+            # 配置有变化，重启服务
+            success = homekit_manager.restart_homekit_service()
+            if success:
+                flash('HomeKit配置保存成功，服务已重启', 'success')
+            else:
+                flash('HomeKit配置保存成功，但服务重启失败', 'warning')
+        else:
+            flash('HomeKit配置保存成功', 'success')
+        
+        return redirect(url_for('homekit_config'))
+        
+    except ValueError:
+        flash('端口号必须是数字', 'error')
+        return redirect(url_for('homekit_config'))
+    except Exception as e:
+        flash(f'保存配置失败: {str(e)}', 'error')
+        return redirect(url_for('homekit_config'))
+
+@app.route('/add_homekit_device', methods=['POST'])
+@login_required
+def add_homekit_device():
+    """添加HomeKit设备"""
+    try:
+        device_id = int(request.form.get('device_id'))
+        homekit_name = request.form.get('homekit_name', '').strip()
+        
+        # 检查设备是否存在
+        device = Device.query.get(device_id)
+        if not device:
+            flash('设备不存在', 'error')
+            return redirect(url_for('homekit_config'))
+        
+        # 检查是否已添加
+        existing = HomeKitDevice.query.filter_by(device_id=device_id).first()
+        if existing:
+            flash('该设备已添加到HomeKit', 'warning')
+            return redirect(url_for('homekit_config'))
+        
+        # 如果没有提供名称，使用设备名称
+        if not homekit_name:
+            homekit_name = device.name
+        
+        # 生成唯一的AID
+        max_aid = db.session.query(db.func.max(HomeKitDevice.homekit_aid)).scalar() or 1
+        new_aid = max_aid + 1
+        
+        # 创建HomeKit设备
+        homekit_device = HomeKitDevice(
+            device_id=device_id,
+            homekit_aid=new_aid,
+            homekit_name=homekit_name,
+            enabled=True
+        )
+        
+        db.session.add(homekit_device)
+        db.session.commit()
+        
+        # 如果HomeKit服务正在运行，动态添加设备
+        if homekit_manager.is_running:
+            success = homekit_manager.add_device_accessory(device_id)
+            if success:
+                flash(f'设备 "{homekit_name}" 已添加到HomeKit并生效', 'success')
+            else:
+                flash(f'设备 "{homekit_name}" 已添加到HomeKit，请重启服务生效', 'warning')
+        else:
+            flash(f'设备 "{homekit_name}" 已添加到HomeKit', 'success')
+        
+        return redirect(url_for('homekit_config'))
+        
+    except ValueError:
+        flash('设备ID格式错误', 'error')
+        return redirect(url_for('homekit_config'))
+    except Exception as e:
+        flash(f'添加设备失败: {str(e)}', 'error')
+        return redirect(url_for('homekit_config'))
+
+@app.route('/remove_homekit_device/<int:homekit_device_id>', methods=['POST'])
+@login_required
+def remove_homekit_device(homekit_device_id):
+    """移除HomeKit设备"""
+    try:
+        homekit_device = HomeKitDevice.query.get_or_404(homekit_device_id)
+        device_name = homekit_device.homekit_name
+        device_id = homekit_device.device_id
+        
+        db.session.delete(homekit_device)
+        db.session.commit()
+        
+        # 如果HomeKit服务正在运行，尝试移除设备
+        if homekit_manager.is_running:
+            homekit_manager.remove_device_accessory(device_id)
+            flash(f'设备 "{device_name}" 已从HomeKit移除，建议重启服务完全生效', 'warning')
+        else:
+            flash(f'设备 "{device_name}" 已从HomeKit移除', 'success')
+        
+        return redirect(url_for('homekit_config'))
+        
+    except Exception as e:
+        flash(f'移除设备失败: {str(e)}', 'error')
+        return redirect(url_for('homekit_config'))
+
+@app.route('/toggle_homekit_device/<int:homekit_device_id>', methods=['POST'])
+@login_required
+def toggle_homekit_device(homekit_device_id):
+    """切换HomeKit设备启用状态"""
+    try:
+        homekit_device = HomeKitDevice.query.get_or_404(homekit_device_id)
+        homekit_device.enabled = not homekit_device.enabled
+        homekit_device.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        status = "启用" if homekit_device.enabled else "禁用"
+        
+        # 如果服务正在运行，建议重启
+        if homekit_manager.is_running:
+            flash(f'设备 "{homekit_device.homekit_name}" 已{status}，建议重启HomeKit服务生效', 'warning')
+        else:
+            flash(f'设备 "{homekit_device.homekit_name}" 已{status}', 'success')
+        
+        return redirect(url_for('homekit_config'))
+        
+    except Exception as e:
+        flash(f'操作失败: {str(e)}', 'error')
+        return redirect(url_for('homekit_config'))
+
+@app.route('/restart_homekit_service', methods=['POST'])
+@login_required
+def restart_homekit_service():
+    """重启HomeKit服务"""
+    try:
+        success = homekit_manager.restart_homekit_service()
+        if success:
+            flash('HomeKit服务重启成功', 'success')
+        else:
+            flash('HomeKit服务重启失败', 'error')
+        
+        return redirect(url_for('homekit_config'))
+        
+    except Exception as e:
+        flash(f'重启服务失败: {str(e)}', 'error')
+        return redirect(url_for('homekit_config'))
+
+@app.route('/generate_homekit_pin', methods=['POST'])
+@login_required
+def generate_homekit_pin():
+    """生成新的HomeKit PIN码"""
+    try:
+        import random
+        
+        # 生成8位数字PIN码，避免以0开头
+        pin = f"{random.randint(10000000, 99999999)}"
+        
+        return jsonify({
+            'success': True,
+            'pin': pin
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'生成PIN码失败: {str(e)}'
+        })
+
+@app.route('/homekit_qr_code')
+@login_required
+def homekit_qr_code():
+    """获取HomeKit配对二维码"""
+    try:
+        qr_data = homekit_manager.get_pairing_qr_code()
+        
+        if qr_data:
+            return jsonify({
+                'success': True,
+                'data': qr_data
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'HomeKit服务未运行或二维码生成失败'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'获取二维码失败: {str(e)}'
+        })
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
@@ -2513,6 +3171,27 @@ def init_mqtt_service():
     except Exception as e:
         logger.error(f"启动MQTT服务时出错: {str(e)}")
 
+# 初始化HomeKit服务
+def init_homekit_service():
+    """程序启动时初始化HomeKit服务"""
+    try:
+        # 获取HomeKit配置
+        homekit_config = HomeKitConfig.query.first()
+        if not homekit_config or not homekit_config.enabled:
+            logger.info("HomeKit服务未启用")
+            return
+        
+        logger.info("正在启动HomeKit桥接服务...")
+        success = homekit_manager.start_homekit_service()
+        
+        if success:
+            logger.info("HomeKit桥接服务启动完成")
+        else:
+            logger.error("HomeKit桥接服务启动失败")
+            
+    except Exception as e:
+        logger.error(f"启动HomeKit服务时出错: {str(e)}")
+
 # 延迟启动MQTT服务
 def delayed_mqtt_init():
     """延迟启动MQTT服务，确保应用完全启动后再连接"""
@@ -2832,4 +3511,7 @@ if __name__ == '__main__':
     init_db()
     # 启动延迟MQTT初始化
     delayed_mqtt_init()
+    # 启动HomeKit服务
+    with app.app_context():
+        init_homekit_service()
     socketio.run(app, host='0.0.0.0', port=8998, debug=False, allow_unsafe_werkzeug=True)
