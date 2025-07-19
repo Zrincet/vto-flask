@@ -99,7 +99,7 @@ class BemfaKey(db.Model):
 class HomeKitConfig(db.Model):
     """HomeKit配置模型"""
     id = db.Column(db.Integer, primary_key=True)
-    bridge_name = db.Column(db.String(100), default='VTO门禁桥接器')  # 桥接器名称
+    bridge_name = db.Column(db.String(100), default='VTO Bridge')  # 桥接器名称
     bridge_pin = db.Column(db.String(20), nullable=False)  # 配对PIN码
     bridge_port = db.Column(db.Integer, default=51827)  # HomeKit服务端口
     enabled = db.Column(db.Boolean, default=False)  # 是否启用HomeKit服务
@@ -2428,7 +2428,7 @@ def homekit_config():
 def save_homekit_config():
     """保存HomeKit配置"""
     try:
-        bridge_name = request.form.get('bridge_name', 'VTO门禁桥接器').strip()
+        bridge_name = request.form.get('bridge_name', 'VTO Bridge').strip()
         bridge_pin = request.form.get('bridge_pin', '').strip()
         bridge_port = int(request.form.get('bridge_port', 51827))
         enabled = request.form.get('enabled') == 'on'

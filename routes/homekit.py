@@ -62,7 +62,7 @@ def save_homekit_config():
     @login_required
     def _save_homekit_config():
         try:
-            bridge_name = request.form.get('bridge_name', 'VTO门禁桥接器').strip()
+            bridge_name = request.form.get('bridge_name', 'VTO Bridge').strip()
             bridge_pin = request.form.get('bridge_pin', '').strip()
             bridge_port = int(request.form.get('bridge_port', 51827))
             enabled = request.form.get('enabled') == 'on'
@@ -286,6 +286,27 @@ def restart_homekit_service():
         return redirect(url_for('homekit.homekit_config'))
     
     return _restart_homekit_service()
+
+@homekit_bp.route('/reset_homekit_service', methods=['POST'])
+def reset_homekit_service():
+    """重置HomeKit服务（清理所有状态）"""
+    login_required = get_login_required()
+    homekit_service = get_services()
+    
+    @login_required
+    def _reset_homekit_service():
+        try:
+            success = homekit_service.reset_service()
+            if success:
+                flash('HomeKit服务重置成功，所有配对信息已清理', 'success')
+            else:
+                flash('HomeKit服务重置失败', 'error')
+        except Exception as e:
+            flash(f'重置服务失败: {str(e)}', 'error')
+        
+        return redirect(url_for('homekit.homekit_config'))
+    
+    return _reset_homekit_service()
 
 @homekit_bp.route('/generate_homekit_pin', methods=['POST'])
 def generate_homekit_pin():

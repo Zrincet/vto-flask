@@ -1,12 +1,13 @@
 """
 MQTT服务模块
-管理MQTT客户端连接和消息处理
+管理MQTT客户端连接和消息处理，包含完善的重连机制
 """
 
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
 
 import paho.mqtt.client as mqtt
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class MQTTClient:
-    """单个MQTT客户端连接"""
+    """单个MQTT客户端连接，支持自动重连"""
     
     def __init__(self, client_id, mqtt_host="bemfa.com", mqtt_port=9501):
         """
@@ -34,69 +35,240 @@ class MQTTClient:
         self.subscribed_topics = set()
         self._app = None  # Flask应用实例，启动时设置
         
+        # 重连机制相关
+        self.auto_reconnect = True
+        self.reconnect_thread = None
+        self.reconnect_interval = 5  # 初始重连间隔（秒）
+        self.max_reconnect_interval = 300  # 最大重连间隔（5分钟）
+        self.reconnect_backoff = 1.5  # 重连间隔递增因子
+        self.current_reconnect_interval = self.reconnect_interval
+        self.last_connect_time = None
+        self.last_disconnect_time = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 0  # 0表示无限重试
+        
+        # 健康检查机制
+        self.last_ping_time = None
+        self.ping_interval = 30  # 心跳间隔（秒）
+        self.ping_timeout = 10  # 心跳超时（秒）
+        self.health_check_thread = None
+        self.stop_event = threading.Event()
+        
     def set_app(self, app):
         """设置Flask应用实例"""
         self._app = app
     
     def start(self):
         """启动MQTT客户端"""
-        if self.is_running and self.is_connected:
-            logger.info(f"MQTT客户端 {self.client_id} 已在运行中，跳过重复启动")
+        if self.is_running:
+            logger.info(f"MQTT客户端 {self.client_id} 已在运行中")
             return
 
-        # 如果之前有连接，先清理
+        self.stop_event.clear()
+        self.is_running = True
+        self.auto_reconnect = True
+        
+        # 启动连接
+        self._connect()
+        
+        # 启动健康检查线程
+        self._start_health_check()
+        
+    def stop(self):
+        """停止MQTT客户端"""
+        logger.info(f"正在停止MQTT客户端 {self.client_id}")
+        
+        self.auto_reconnect = False
+        self.is_running = False
+        self.stop_event.set()
+        
+        # 停止重连线程
+        if self.reconnect_thread and self.reconnect_thread.is_alive():
+            self.reconnect_thread.join(timeout=2)
+            
+        # 停止健康检查线程
+        if self.health_check_thread and self.health_check_thread.is_alive():
+            self.health_check_thread.join(timeout=2)
+        
+        # 断开MQTT连接
         if self.client:
             try:
                 self.client.loop_stop()
                 self.client.disconnect()
-            except:
-                pass
-            self.client = None
-
-        # 兼容不同版本的paho-mqtt
-        try:
-            # paho-mqtt 2.0+ 版本
-            self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1, client_id=self.client_id)
-        except AttributeError:
-            # paho-mqtt 1.x 版本
-            self.client = mqtt.Client(client_id=self.client_id)
+            except Exception as e:
+                logger.error(f"断开MQTT客户端 {self.client_id} 时出错: {str(e)}")
+            finally:
+                self.client = None
+                self.is_connected = False
         
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.on_message
-        self.client.on_disconnect = self.on_disconnect
+        logger.info(f"MQTT客户端 {self.client_id} 已停止")
 
+    def _connect(self):
+        """建立MQTT连接"""
         try:
-            self.client.connect(self.mqtt_host, self.mqtt_port, 60)
+            # 清理旧连接
+            if self.client:
+                try:
+                    self.client.loop_stop()
+                    self.client.disconnect()
+                except:
+                    pass
+                self.client = None
+
+            # 创建新客户端
+            try:
+                # paho-mqtt 2.0+ 版本
+                self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1, client_id=self.client_id)
+            except AttributeError:
+                # paho-mqtt 1.x 版本
+                self.client = mqtt.Client(client_id=self.client_id)
+            
+            # 设置回调函数
+            self.client.on_connect = self._on_connect
+            self.client.on_message = self._on_message
+            self.client.on_disconnect = self._on_disconnect
+            self.client.on_ping = self._on_ping
+            
+            # 设置连接参数
+            self.client.keepalive = 60
+            
+            # 开始连接
+            logger.info(f"正在连接MQTT服务器: {self.mqtt_host}:{self.mqtt_port} (客户端: {self.client_id})")
+            self.client.connect_async(self.mqtt_host, self.mqtt_port, 60)
             self.client.loop_start()
-            self.is_running = True
-            logger.info(f"MQTT客户端 {self.client_id} 已启动，连接到 {self.mqtt_host}:{self.mqtt_port}")
+            
         except Exception as e:
-            logger.error(f"启动MQTT客户端 {self.client_id} 失败: {str(e)}")
-            raise
+            logger.error(f"连接MQTT服务器失败 (客户端: {self.client_id}): {str(e)}")
+            if self.auto_reconnect and self.is_running:
+                self._schedule_reconnect()
 
-    def stop(self):
-        """停止MQTT客户端"""
-        if self.client and self.is_running:
-            self.client.loop_stop()
-            self.client.disconnect()
-            self.is_running = False
-            self.is_connected = False
-            logger.info(f"MQTT客户端 {self.client_id} 已停止")
-
-    def on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, client, userdata, flags, rc):
         """MQTT连接回调"""
         if rc == 0:
             self.is_connected = True
-            logger.info(f"MQTT客户端 {self.client_id} 已连接到服务器")
+            self.last_connect_time = datetime.now()
+            self.reconnect_attempts = 0
+            self.current_reconnect_interval = self.reconnect_interval  # 重置重连间隔
+            
+            logger.info(f"MQTT客户端 {self.client_id} 连接成功")
             
             # 在Flask应用上下文中执行数据库查询
             if self._app:
                 with self._app.app_context():
-                    self._subscribe_device_topics(client)
+                    self._subscribe_device_topics()
         else:
-            logger.error(f"MQTT客户端 {self.client_id} 连接服务器失败，返回码: {rc}")
+            error_messages = {
+                1: "连接被拒绝 - 协议版本不正确",
+                2: "连接被拒绝 - 无效的客户端标识符",
+                3: "连接被拒绝 - 服务器不可用",
+                4: "连接被拒绝 - 用户名或密码错误",
+                5: "连接被拒绝 - 未授权"
+            }
+            error_msg = error_messages.get(rc, f"连接被拒绝 - 未知错误码: {rc}")
+            logger.error(f"MQTT客户端 {self.client_id} 连接失败: {error_msg}")
+            
+            if self.auto_reconnect and self.is_running:
+                self._schedule_reconnect()
 
-    def _subscribe_device_topics(self, client):
+    def _on_disconnect(self, client, userdata, rc):
+        """MQTT断连回调"""
+        self.is_connected = False
+        self.last_disconnect_time = datetime.now()
+        
+        if rc != 0:
+            logger.warning(f"MQTT客户端 {self.client_id} 意外断开连接 (返回码: {rc})")
+            if self.auto_reconnect and self.is_running:
+                self._schedule_reconnect()
+        else:
+            logger.info(f"MQTT客户端 {self.client_id} 正常断开连接")
+
+    def _on_ping(self, client, userdata, mid):
+        """MQTT心跳回调"""
+        self.last_ping_time = datetime.now()
+        logger.debug(f"MQTT客户端 {self.client_id} 心跳正常")
+
+    def _schedule_reconnect(self):
+        """安排重连"""
+        if not self.auto_reconnect or not self.is_running:
+            return
+            
+        if self.max_reconnect_attempts > 0 and self.reconnect_attempts >= self.max_reconnect_attempts:
+            logger.error(f"MQTT客户端 {self.client_id} 已达到最大重连次数 ({self.max_reconnect_attempts})")
+            return
+        
+        # 如果重连线程还在运行，则不启动新的
+        if self.reconnect_thread and self.reconnect_thread.is_alive():
+            return
+            
+        self.reconnect_thread = threading.Thread(target=self._reconnect_worker, daemon=True)
+        self.reconnect_thread.start()
+
+    def _reconnect_worker(self):
+        """重连工作线程"""
+        while self.auto_reconnect and self.is_running and not self.is_connected:
+            self.reconnect_attempts += 1
+            
+            # 添加随机抖动，避免大量客户端同时重连
+            jitter = random.uniform(0.5, 1.5)
+            wait_time = self.current_reconnect_interval * jitter
+            
+            logger.info(f"MQTT客户端 {self.client_id} 将在 {wait_time:.1f} 秒后进行第 {self.reconnect_attempts} 次重连")
+            
+            if self.stop_event.wait(wait_time):
+                break  # 收到停止信号
+            
+            if not self.auto_reconnect or not self.is_running:
+                break
+                
+            logger.info(f"MQTT客户端 {self.client_id} 正在进行第 {self.reconnect_attempts} 次重连...")
+            self._connect()
+            
+            # 等待连接结果
+            for _ in range(10):  # 等待最多10秒
+                if self.is_connected or not self.is_running:
+                    break
+                time.sleep(1)
+            
+            if self.is_connected:
+                logger.info(f"MQTT客户端 {self.client_id} 重连成功")
+                break
+            else:
+                # 增加重连间隔
+                self.current_reconnect_interval = min(
+                    self.current_reconnect_interval * self.reconnect_backoff,
+                    self.max_reconnect_interval
+                )
+                logger.warning(f"MQTT客户端 {self.client_id} 重连失败，下次间隔: {self.current_reconnect_interval:.1f} 秒")
+
+    def _start_health_check(self):
+        """启动健康检查"""
+        if self.health_check_thread and self.health_check_thread.is_alive():
+            return
+            
+        self.health_check_thread = threading.Thread(target=self._health_check_worker, daemon=True)
+        self.health_check_thread.start()
+
+    def _health_check_worker(self):
+        """健康检查工作线程"""
+        while self.is_running and not self.stop_event.is_set():
+            try:
+                if self.is_connected and self.client:
+                    # 检查心跳超时
+                    if (self.last_ping_time and 
+                        datetime.now() - self.last_ping_time > timedelta(seconds=self.ping_timeout + self.ping_interval)):
+                        logger.warning(f"MQTT客户端 {self.client_id} 心跳超时，触发重连")
+                        self.is_connected = False
+                        if self.auto_reconnect:
+                            self._schedule_reconnect()
+                
+                # 每30秒检查一次
+                if self.stop_event.wait(30):
+                    break
+                    
+            except Exception as e:
+                logger.error(f"MQTT客户端 {self.client_id} 健康检查出错: {str(e)}")
+
+    def _subscribe_device_topics(self):
         """订阅设备主题"""
         try:
             from models import Device
@@ -107,14 +279,14 @@ class MQTTClient:
             ).all()
             
             for device in devices:
-                if device.mqtt_topic:
-                    client.subscribe(device.mqtt_topic)
+                if device.mqtt_topic and device.mqtt_topic not in self.subscribed_topics:
+                    self.client.subscribe(device.mqtt_topic)
                     self.subscribed_topics.add(device.mqtt_topic)
                     logger.info(f"客户端 {self.client_id} 已订阅主题: {device.mqtt_topic}")
         except Exception as e:
             logger.error(f"订阅设备主题失败: {str(e)}")
 
-    def on_message(self, client, userdata, msg):
+    def _on_message(self, client, userdata, msg):
         """MQTT消息接收回调"""
         try:
             topic = msg.topic
@@ -206,33 +378,51 @@ class MQTTClient:
         except Exception as push_error:
             logger.error(f"发送状态推送消息时出错: {str(push_error)}")
 
-    def on_disconnect(self, client, userdata, rc):
-        """MQTT断连回调"""
-        self.is_connected = False
-        logger.info(f"MQTT客户端 {self.client_id} 已断开连接")
-
     def subscribe_device_topic(self, topic):
         """订阅设备主题"""
         if self.client and self.is_connected and topic not in self.subscribed_topics:
-            self.client.subscribe(topic)
-            self.subscribed_topics.add(topic)
-            logger.info(f"客户端 {self.client_id} 已订阅新主题: {topic}")
+            try:
+                self.client.subscribe(topic)
+                self.subscribed_topics.add(topic)
+                logger.info(f"客户端 {self.client_id} 已订阅新主题: {topic}")
+            except Exception as e:
+                logger.error(f"客户端 {self.client_id} 订阅主题 {topic} 失败: {str(e)}")
 
     def unsubscribe_device_topic(self, topic):
         """取消订阅设备主题"""
         if self.client and self.is_connected and topic in self.subscribed_topics:
-            self.client.unsubscribe(topic)
-            self.subscribed_topics.remove(topic)
-            logger.info(f"客户端 {self.client_id} 已取消订阅主题: {topic}")
+            try:
+                self.client.unsubscribe(topic)
+                self.subscribed_topics.remove(topic)
+                logger.info(f"客户端 {self.client_id} 已取消订阅主题: {topic}")
+            except Exception as e:
+                logger.error(f"客户端 {self.client_id} 取消订阅主题 {topic} 失败: {str(e)}")
+
+    def get_status(self):
+        """获取客户端状态信息"""
+        return {
+            'client_id': self.client_id,
+            'connected': self.is_connected,
+            'running': self.is_running,
+            'auto_reconnect': self.auto_reconnect,
+            'reconnect_attempts': self.reconnect_attempts,
+            'current_reconnect_interval': self.current_reconnect_interval,
+            'last_connect_time': self.last_connect_time.isoformat() if self.last_connect_time else None,
+            'last_disconnect_time': self.last_disconnect_time.isoformat() if self.last_disconnect_time else None,
+            'last_ping_time': self.last_ping_time.isoformat() if self.last_ping_time else None,
+            'subscribed_topics': list(self.subscribed_topics)
+        }
 
 
 class MQTTManager:
-    """支持多个巴法云账号的MQTT管理器"""
+    """支持多个巴法云账号的MQTT管理器，包含完善的重连机制"""
     
     def __init__(self):
         self.clients = {}  # {client_id: MQTTClient}
         self.is_running = False
         self._app = None  # Flask应用实例
+        self.monitor_thread = None
+        self.stop_event = threading.Event()
 
     def set_app(self, app):
         """设置Flask应用实例"""
@@ -266,6 +456,7 @@ class MQTTManager:
                 self.start_client(bemfa_key.key)
         
         self.is_running = True
+        self._start_monitor()
 
     def start_client(self, client_id, mqtt_host="bemfa.com", mqtt_port=9501):
         """启动指定的MQTT客户端"""
@@ -289,10 +480,20 @@ class MQTTManager:
 
     def stop_mqtt_service(self):
         """停止所有MQTT客户端"""
-        for client_id, client in self.clients.items():
-            client.stop()
-        self.clients.clear()
+        logger.info("正在停止所有MQTT客户端...")
+        
         self.is_running = False
+        self.stop_event.set()
+        
+        # 停止监控线程
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=5)
+        
+        # 停止所有客户端
+        for client_id, client in list(self.clients.items()):
+            client.stop()
+        
+        self.clients.clear()
         logger.info("所有MQTT客户端已停止")
 
     def stop_client(self, client_id):
@@ -302,20 +503,62 @@ class MQTTManager:
             del self.clients[client_id]
             logger.info(f"MQTT客户端 {client_id} 已停止")
 
+    def _start_monitor(self):
+        """启动监控线程"""
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            return
+            
+        self.monitor_thread = threading.Thread(target=self._monitor_worker, daemon=True)
+        self.monitor_thread.start()
+
+    def _monitor_worker(self):
+        """监控工作线程，定期检查客户端状态"""
+        while self.is_running and not self.stop_event.is_set():
+            try:
+                if self._app:
+                    with self._app.app_context():
+                        self._check_clients_health()
+                
+                # 每60秒检查一次
+                if self.stop_event.wait(60):
+                    break
+                    
+            except Exception as e:
+                logger.error(f"MQTT监控线程出错: {str(e)}")
+
+    def _check_clients_health(self):
+        """检查客户端健康状态"""
+        try:
+            from models import BemfaKey
+            
+            # 获取应该运行的客户端列表
+            bemfa_keys = BemfaKey.query.filter_by(enabled=True).all()
+            expected_clients = {bemfa_key.key for bemfa_key in bemfa_keys}
+            
+            # 停止不应该运行的客户端
+            current_clients = set(self.clients.keys())
+            for client_id in current_clients - expected_clients:
+                logger.info(f"停止不需要的MQTT客户端: {client_id}")
+                self.stop_client(client_id)
+            
+            # 启动缺失的客户端
+            for client_id in expected_clients - current_clients:
+                logger.info(f"启动缺失的MQTT客户端: {client_id}")
+                self.start_client(client_id)
+            
+        except Exception as e:
+            logger.error(f"检查MQTT客户端健康状态时出错: {str(e)}")
+
     @property
     def is_connected(self):
         """检查是否有任何客户端连接"""
         return any(client.is_connected for client in self.clients.values())
 
     def get_connection_status(self):
-        """获取所有客户端的连接状态"""
+        """获取所有客户端的详细连接状态"""
         status = {}
         for client_id, client in self.clients.items():
-            status[client_id] = {
-                'connected': client.is_connected,
-                'running': client.is_running,
-                'subscribed_topics': len(client.subscribed_topics)
-            }
+            status[client_id] = client.get_status()
         return status
 
     def subscribe_device_topic(self, topic):

@@ -25,10 +25,10 @@ def get_login_required():
     return login_required
 
 # 创建设置蓝图
-settings_bp = Blueprint('settings', __name__)
+settings_bp = Blueprint('settings', __name__, url_prefix='/settings')
 logger = logging.getLogger(__name__)
 
-@settings_bp.route('/settings')
+@settings_bp.route('/')
 def settings():
     """系统设置页面"""
     login_required = get_login_required()
@@ -466,4 +466,58 @@ def sync_bemfa_devices():
             logger.error(f"手动同步巴法云失败: {str(e)}")
             return jsonify({"success": False, "message": f"同步失败: {str(e)}"})
     
-    return _sync_bemfa_devices() 
+    return _sync_bemfa_devices()
+
+@settings_bp.route('/mqtt_status', methods=['GET'])
+def mqtt_status():
+    """获取MQTT连接状态"""
+    login_required = get_login_required()
+    mqtt_manager, bemfa_sync_service, homekit_service = get_services()
+    
+    @login_required
+    def _mqtt_status():
+        try:
+            status = mqtt_manager.get_connection_status()
+            return jsonify({
+                'success': True,
+                'status': status,
+                'is_running': mqtt_manager.is_running,
+                'is_connected': mqtt_manager.is_connected
+            })
+        except Exception as e:
+            logger.error(f"获取MQTT状态时出错: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f'获取状态失败: {str(e)}'
+            })
+    
+    return _mqtt_status()
+
+@settings_bp.route('/restart_mqtt', methods=['POST'])
+def restart_mqtt():
+    """重启MQTT服务"""
+    login_required = get_login_required()
+    mqtt_manager, bemfa_sync_service, homekit_service = get_services()
+    
+    @login_required
+    def _restart_mqtt():
+        try:
+            logger.info("手动重启MQTT服务")
+            mqtt_manager.stop_mqtt_service()
+            # 等待一秒确保完全停止
+            import time
+            time.sleep(1)
+            mqtt_manager.init_mqtt_service()
+            
+            return jsonify({
+                'success': True,
+                'message': 'MQTT服务重启成功'
+            })
+        except Exception as e:
+            logger.error(f"重启MQTT服务时出错: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f'重启失败: {str(e)}'
+            })
+    
+    return _restart_mqtt() 

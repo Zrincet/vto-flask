@@ -2,3 +2,6 @@
 .idea
 /instance/
 /db/
+/test/busy_home.state
+/vto_homekit.state
+/vto_homekit_metadata.json

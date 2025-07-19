@@ -11,6 +11,10 @@
         <i class="fas fa-redo"></i>
         <span class="d-none d-sm-inline">重启服务</span>
     </button>
+    <button type="button" class="btn btn-outline-danger btn-sm" onclick="resetHomeKitService()">
+        <i class="fas fa-trash-restore"></i>
+        <span class="d-none d-sm-inline">重置服务</span>
+    </button>
     {% endif %}
     <button type="button" class="btn btn-outline-success btn-sm" onclick="generatePin()">
         <i class="fas fa-random"></i>
@@ -94,8 +98,8 @@
                     <div class="col-12 col-md-6">
                         <label for="bridge_name" class="form-label">桥接器名称</label>
                         <input type="text" class="form-control" id="bridge_name" name="bridge_name" 
-                               value="{{ homekit_config.bridge_name if homekit_config else 'VTO门禁桥接器' }}" 
-                               placeholder="VTO门禁桥接器" required>
+                               value="{{ homekit_config.bridge_name if homekit_config else 'VTO Bridge' }}"
+                               placeholder="VTO Bridge" required>
                         <div class="form-text">在家庭应用中显示的名称</div>
                     </div>
                     
@@ -388,6 +392,24 @@ function restartHomeKitService() {
             console.error('Error:', error);
             alert('重启服务失败');
         });
+    }
+}
+
+// 重置HomeKit服务
+function resetHomeKitService() {
+    if (confirm('确定要重置HomeKit服务吗？\n\n⚠️ 警告：这将：\n• 清理所有配对信息\n• 清理所有状态文件\n• 需要重新配对所有HomeKit设备\n\n请确认您了解此操作的影响。')) {
+        if (confirm('最后确认：这是一个不可逆的操作，将清理所有HomeKit配对信息。确定继续吗？')) {
+            fetch('{{ url_for("homekit.reset_homekit_service") }}', {
+                method: 'POST'
+            })
+            .then(() => {
+                location.reload();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('重置服务失败');
+            });
+        }
     }
 }
 

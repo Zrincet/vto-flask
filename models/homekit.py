@@ -12,7 +12,7 @@ class HomeKitConfig(db.Model):
     __tablename__ = 'homekit_config'
     
     id = db.Column(db.Integer, primary_key=True)
-    bridge_name = db.Column(db.String(100), default='VTO门禁桥接器')  # 桥接器名称
+    bridge_name = db.Column(db.String(100), default='VTO Bridge')  # 桥接器名称
     bridge_pin = db.Column(db.String(20), nullable=False)  # 配对PIN码
     bridge_port = db.Column(db.Integer, default=51827)  # HomeKit服务端口
     enabled = db.Column(db.Boolean, default=False)  # 是否启用HomeKit服务

@@ -8,12 +8,26 @@ import threading
 import time
 import os
 from datetime import datetime
-from flask import current_app as app
 
 # 延迟导入，避免循环导入
 def get_db():
     from app import db
     return db
+
+def get_app():
+    """获取Flask应用实例，处理循环导入"""
+    try:
+        from app import app
+        return app
+    except ImportError:
+        # 如果直接导入失败，尝试从Flask上下文获取
+        try:
+            from flask import current_app
+            return current_app._get_current_object()
+        except Exception:
+            # 如果都失败了，返回None并记录错误
+            logger.error("无法获取Flask应用实例")
+            return None
 
 def get_models():
     from models.homekit import HomeKitConfig, HomeKitDevice
@@ -75,6 +89,11 @@ class DoorLockAccessory:
                 def set_lock_state(self, value):
                     """设置锁状态"""
                     try:
+                        app = get_app()
+                        if not app:
+                            logger.error("无法获取Flask应用实例，无法设置锁状态")
+                            return
+                        
                         with app.app_context():
                             # 如果目标状态是解锁 (0)
                             if value == 0:
@@ -91,9 +110,15 @@ class DoorLockAccessory:
                                     # 延迟自动锁定（模拟门锁行为）
                                     def auto_lock():
                                         time.sleep(5)  # 5秒后自动锁定
-                                        self.char_lock_current_state.set_value(1)
-                                        self.char_lock_target_state.set_value(1)
-                                        logger.info(f"HomeKit设备 {self.device_id} 自动锁定")
+                                        app = get_app()
+                                        if not app:
+                                            logger.error("无法获取Flask应用实例，无法执行自动锁定")
+                                            return
+                                        
+                                        with app.app_context():
+                                            self.char_lock_current_state.set_value(1)
+                                            self.char_lock_target_state.set_value(1)
+                                            logger.info(f"HomeKit设备 {self.device_id} 自动锁定")
                                     
                                     threading.Thread(target=auto_lock, daemon=True).start()
                                 else:
@@ -171,6 +196,11 @@ class HomeKitManager:
             from pyhap.const import CATEGORY_BRIDGE
             import pyhap.loader as loader
             
+            app = get_app()
+            if not app:
+                logger.error("无法获取Flask应用实例，无法启动HomeKit服务")
+                return False
+            
             with app.app_context():
                 HomeKitConfig, HomeKitDevice, Device = get_models()
                 
@@ -192,10 +222,19 @@ class HomeKitManager:
                 # 先创建一个AccessoryDriver（暂不传入accessory）
                 # 将8位数字PIN码转换为HAP-python要求的格式 (xxx-xx-xxx)
                 formatted_pin = format_homekit_pincode(homekit_config.bridge_pin)
+                
+                # 生成稳定的MAC地址和状态文件
+                bridge_mac = self._generate_stable_bridge_mac(homekit_config)
+                state_file = self._get_homekit_state_file(homekit_config)
+                
+                # 检查配置变化，只在必要时清理状态文件
+                self._check_and_clean_if_needed(homekit_config, bridge_mac)
+                
                 self.driver = AccessoryDriver(
                     port=homekit_config.bridge_port,
                     pincode=formatted_pin.encode(),
-                    persist_file='homekit_state.json'
+                    persist_file=state_file,
+                    mac=bridge_mac  # 直接在driver中设置MAC地址
                 )
                 
                 # 创建桥接器，传入driver
@@ -204,11 +243,11 @@ class HomeKitManager:
                     display_name=homekit_config.bridge_name
                 )
                 
-                # 将Bridge设置为driver的accessory
-                self.driver.accessory = self.bridge
-                
-                # 添加设备配件
+                # 添加设备配件到桥接器
                 self._add_device_accessories()
+                
+                # 使用官方推荐的方式设置accessory
+                self.driver.add_accessory(accessory=self.bridge)
                 
                 # 在单独的线程中启动HomeKit服务
                 def run_homekit():
@@ -238,18 +277,34 @@ class HomeKitManager:
     def stop_homekit_service(self):
         """停止HomeKit桥接服务"""
         try:
+            logger.info("正在停止HomeKit桥接服务...")
+            
+            # 设置停止标志
+            self.is_running = False
+            
+            # 停止驱动器
             if self.driver:
-                self.driver.stop()
-                self.driver = None
+                try:
+                    self.driver.stop()
+                    logger.info("HomeKit驱动器已停止")
+                except Exception as e:
+                    logger.warning(f"停止驱动器时出错: {str(e)}")
+                finally:
+                    self.driver = None
             
+            # 等待HomeKit线程结束
             if self._homekit_thread and self._homekit_thread.is_alive():
-                # 等待线程结束（最多等待5秒）
-                self._homekit_thread.join(timeout=5)
+                logger.info("等待HomeKit线程结束...")
+                self._homekit_thread.join(timeout=10)
+                if self._homekit_thread.is_alive():
+                    logger.warning("HomeKit线程未能在10秒内结束")
             
+            # 清理资源
             self.bridge = None
             self.accessories.clear()
-            self.is_running = False
-            logger.info("HomeKit桥接服务已停止")
+            self._homekit_thread = None
+            
+            logger.info("HomeKit桥接服务已完全停止")
             return True
             
         except Exception as e:
@@ -262,6 +317,185 @@ class HomeKitManager:
         time.sleep(2)  # 等待完全停止
         return self.start_homekit_service()
     
+    def reset_homekit_service(self):
+        """重置HomeKit服务（清理所有状态）"""
+        try:
+            logger.info("正在重置HomeKit服务...")
+            
+            # 停止服务
+            self.stop_homekit_service()
+            
+            # 清理所有状态文件
+            self._cleanup_homekit_files()
+            
+            # 等待一段时间确保完全清理
+            time.sleep(3)
+            
+            logger.info("HomeKit服务重置完成")
+            return True
+            
+        except Exception as e:
+            logger.error(f"重置HomeKit服务失败: {str(e)}")
+            return False
+    
+    def _get_homekit_state_file(self, homekit_config):
+        """生成固定的HomeKit状态文件路径"""
+        # 使用固定的文件名，确保重启后能正确加载状态
+        return "vto_homekit.state"
+    
+    def _generate_stable_bridge_mac(self, homekit_config):
+        """生成稳定的桥接器MAC地址"""
+        import hashlib
+        
+        # 使用桥接器配置生成稳定的MAC地址
+        bridge_id = f"{homekit_config.bridge_name}_{homekit_config.bridge_port}_{homekit_config.bridge_pin}"
+        hash_obj = hashlib.md5(bridge_id.encode())
+        hash_bytes = hash_obj.digest()
+        
+        # 生成MAC地址格式 (XX:XX:XX:XX:XX:XX)
+        # 确保第一个字节的最低位为0（单播地址）且第二位为1（本地管理地址）
+        mac_bytes = list(hash_bytes[:6])
+        mac_bytes[0] = (mac_bytes[0] & 0xFC) | 0x02  # 设置为本地管理地址
+        
+        mac_address = ':'.join(f'{b:02X}' for b in mac_bytes)
+        logger.debug(f"生成稳定的桥接器MAC地址: {mac_address}")
+        return mac_address
+    
+    def _check_and_clean_if_needed(self, homekit_config, bridge_mac):
+        """检查配置变化，必要时清理状态文件"""
+        import os
+        
+        try:
+            metadata_file = 'vto_homekit_metadata.json'
+            state_file = 'vto_homekit.state'
+            
+            if os.path.exists(metadata_file):
+                # 检查关键配置是否变化
+                if self._critical_config_changed(metadata_file, homekit_config, bridge_mac):
+                    logger.info("检测到关键配置变化，清理状态文件")
+                    # 清理状态文件，让pyhap重新生成
+                    if os.path.exists(state_file):
+                        os.remove(state_file)
+                        logger.info(f"已删除状态文件: {state_file}")
+                    # 删除元数据文件
+                    os.remove(metadata_file)
+                else:
+                    logger.debug("配置无关键变化，保持现有状态")
+            
+            # 保存当前配置到元数据
+            self._save_simple_metadata(metadata_file, homekit_config, bridge_mac)
+            
+        except Exception as e:
+            logger.warning(f"配置检查时出错: {str(e)}")
+            # 出错时保守处理，清理状态文件
+            try:
+                if os.path.exists('vto_homekit.state'):
+                    os.remove('vto_homekit.state')
+            except:
+                pass
+    
+    def _critical_config_changed(self, metadata_file, homekit_config, bridge_mac):
+        """检查关键配置是否变化（只检查影响配对的配置）"""
+        import json
+        
+        try:
+            with open(metadata_file, 'r') as f:
+                stored_metadata = json.load(f)
+            
+            # 只检查影响HomeKit配对的关键配置
+            critical_changed = (
+                stored_metadata.get('bridge_name') != homekit_config.bridge_name or
+                stored_metadata.get('bridge_port') != homekit_config.bridge_port or
+                stored_metadata.get('bridge_pin') != homekit_config.bridge_pin or
+                stored_metadata.get('bridge_mac') != bridge_mac
+            )
+            
+            if critical_changed:
+                logger.info("关键配置发生变化:")
+                if stored_metadata.get('bridge_name') != homekit_config.bridge_name:
+                    logger.info(f"  桥接器名称: {stored_metadata.get('bridge_name')} -> {homekit_config.bridge_name}")
+                if stored_metadata.get('bridge_port') != homekit_config.bridge_port:
+                    logger.info(f"  端口: {stored_metadata.get('bridge_port')} -> {homekit_config.bridge_port}")
+                if stored_metadata.get('bridge_pin') != homekit_config.bridge_pin:
+                    logger.info(f"  PIN码: {stored_metadata.get('bridge_pin')} -> {homekit_config.bridge_pin}")
+                if stored_metadata.get('bridge_mac') != bridge_mac:
+                    logger.info(f"  MAC地址: {stored_metadata.get('bridge_mac')} -> {bridge_mac}")
+            
+            return critical_changed
+            
+        except Exception as e:
+            logger.error(f"检查关键配置时出错: {str(e)}")
+            return True  # 出错时认为有变化，清理状态
+    
+    def _save_simple_metadata(self, metadata_file, homekit_config, bridge_mac):
+        """保存简化的元数据"""
+        import json
+        
+        try:
+            metadata = {
+                'bridge_name': homekit_config.bridge_name,
+                'bridge_port': homekit_config.bridge_port,
+                'bridge_pin': homekit_config.bridge_pin,
+                'bridge_mac': bridge_mac,
+                'last_update': time.time()
+            }
+            
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            logger.debug(f"已保存简化元数据到: {metadata_file}")
+            
+        except Exception as e:
+            logger.error(f"保存简化元数据时出错: {str(e)}")
+
+
+    
+    def _cleanup_homekit_files(self):
+        """清理HomeKit相关文件"""
+        import os
+        import glob
+        
+        try:
+            # 清理HomeKit相关文件
+            files_to_clean = [
+                "vto_homekit.state",        # 固定的状态文件
+                "vto_homekit_metadata.json", # 固定的元数据文件
+                "accessory.state",          # 旧版状态文件
+            ]
+            
+            # 添加通配符模式清理（用于清理旧的动态命名文件）
+            patterns_to_clean = [
+                "vto_homekit_*.state",      # 旧的动态状态文件
+                "vto_homekit_*_metadata.json",  # 旧的动态元数据文件
+                "homekit_state*.json",      # 旧的状态文件（兼容清理）
+                "homekit_state*_metadata.json",  # 旧的元数据文件
+                "*.hap",                    # HAP缓存文件
+                ".homekit_*"               # 隐藏的HomeKit文件
+            ]
+            
+            # 清理固定文件
+            for file in files_to_clean:
+                if os.path.exists(file):
+                    try:
+                        os.remove(file)
+                        logger.info(f"已清理文件: {file}")
+                    except Exception as e:
+                        logger.warning(f"清理文件 {file} 时出错: {str(e)}")
+            
+            # 清理通配符文件
+            
+            for pattern in patterns_to_clean:
+                files = glob.glob(pattern)
+                for file in files:
+                    try:
+                        os.remove(file)
+                        logger.info(f"已清理文件: {file}")
+                    except Exception as e:
+                        logger.warning(f"清理文件 {file} 时出错: {str(e)}")
+                        
+        except Exception as e:
+            logger.error(f"清理HomeKit文件时出错: {str(e)}")
+
     def _add_device_accessories(self):
         """添加设备配件到桥接器"""
         try:
@@ -270,12 +504,15 @@ class HomeKitManager:
             
             HomeKitConfig, HomeKitDevice, Device = get_models()
             
-            # 获取启用HomeKit的设备
-            homekit_devices = HomeKitDevice.query.filter_by(enabled=True).all()
+            # 获取启用HomeKit的设备，并按ID排序确保稳定的添加顺序
+            homekit_devices = HomeKitDevice.query.filter_by(enabled=True).order_by(HomeKitDevice.device_id).all()
             
             for hk_device in homekit_devices:
                 device = hk_device.device
                 if device and device.visible:
+                    # 生成稳定的AID（基于设备ID）
+                    stable_aid = self._generate_stable_aid(device.id)
+                    
                     # 创建门锁配件
                     accessory = DoorLockAccessory(
                         driver=self.driver,
@@ -283,18 +520,35 @@ class HomeKitManager:
                         device_id=device.id
                     )
                     
+                    # 设置稳定的AID
+                    accessory.accessory.aid = stable_aid
+                    
                     # 添加到桥接器
                     self.bridge.add_accessory(accessory.accessory)
                     self.accessories[device.id] = accessory
                     
-                    logger.info(f"添加HomeKit设备: {hk_device.homekit_name} (ID: {device.id})")
+                    logger.info(f"添加HomeKit设备: {hk_device.homekit_name} (ID: {device.id}, AID: {stable_aid})")
             
         except Exception as e:
             logger.error(f"添加设备配件失败: {str(e)}")
     
+    def _generate_stable_aid(self, device_id):
+        """生成稳定的Accessory ID"""
+        # 使用设备ID生成稳定的AID
+        # AID必须在2-255之间，且不能是7（pyhap的限制）
+        base_aid = (device_id % 254) + 2  # 确保在2-255范围内
+        if base_aid == 7:
+            base_aid = 8  # 避免使用AID=7
+        return base_aid
+    
     def add_device_accessory(self, device_id):
         """动态添加设备配件"""
         try:
+            app = get_app()
+            if not app:
+                logger.error("无法获取Flask应用实例，无法添加设备配件")
+                return False
+            
             with app.app_context():
                 HomeKitConfig, HomeKitDevice, Device = get_models()
                 
@@ -311,16 +565,22 @@ class HomeKitManager:
                     from pyhap.accessory import Accessory
                     from pyhap.const import CATEGORY_DOOR_LOCK
                     
+                    # 生成稳定的AID
+                    stable_aid = self._generate_stable_aid(device.id)
+                    
                     accessory = DoorLockAccessory(
                         driver=self.driver,
                         display_name=hk_device.homekit_name,
                         device_id=device.id
                     )
                     
+                    # 设置稳定的AID
+                    accessory.accessory.aid = stable_aid
+                    
                     self.bridge.add_accessory(accessory.accessory)
                     self.accessories[device.id] = accessory
                     
-                    logger.info(f"动态添加HomeKit设备: {hk_device.homekit_name}")
+                    logger.info(f"动态添加HomeKit设备: {hk_device.homekit_name} (AID: {stable_aid})")
                     return True
                 
             return False
@@ -398,6 +658,11 @@ class HomeKitService:
     def init_homekit_service(self):
         """程序启动时初始化HomeKit服务"""
         try:
+            app = get_app()
+            if not app:
+                logger.error("无法获取Flask应用实例，无法初始化HomeKit服务")
+                return
+            
             with app.app_context():
                 HomeKitConfig, _, _ = get_models()
                 
@@ -429,6 +694,10 @@ class HomeKitService:
     def restart_service(self):
         """重启HomeKit服务"""
         return self.manager.restart_homekit_service()
+    
+    def reset_service(self):
+        """重置HomeKit服务（清理所有状态）"""
+        return self.manager.reset_homekit_service()
     
     def get_service_status(self):
         """获取服务状态"""
