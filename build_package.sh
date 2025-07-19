@@ -231,25 +231,33 @@ download_opkg_core() {
     
     # 下载entware-opt包
     log_info "下载entware-opt包..."
-    local PACKAGES_URL="http://bin.entware.net/${ARCH}/packages"
+    local ENTWARE_OPT_URL="http://bin.entware.net/${ARCH}/entware-opt_227000-3_all.ipk"
     
-    # 尝试下载不同版本的entware-opt
-    local entware_files=(
-        "entware-opt_1.0-52_mipsel.ipk"
-        "entware-opt_1.0-51_mipsel.ipk" 
-        "entware-opt_1.0-50_mipsel.ipk"
-        "entware-opt_1.0-49_mipsel.ipk"
-    )
-    
+    log_info "下载 entware-opt_227000-3_all.ipk..."
     local entware_downloaded=false
-    for entware_file in "${entware_files[@]}"; do
-        log_info "尝试下载 $entware_file..."
-        if wget --timeout=30 --tries=2 "$PACKAGES_URL/$entware_file" -O entware-opt.ipk 2>/dev/null; then
-            log_success "✓ entware-opt包下载成功: $entware_file"
-            entware_downloaded=true
-            break
-        fi
-    done
+    if wget --timeout=30 --tries=3 "$ENTWARE_OPT_URL" -O entware-opt.ipk 2>/dev/null; then
+        log_success "✓ entware-opt包下载成功"
+        entware_downloaded=true
+    else
+        log_warning "✗ 主要entware-opt包下载失败，尝试备用版本..."
+        
+        # 备用版本列表
+        local entware_backup_files=(
+            "entware-opt_1.0-52_mipsel.ipk"
+            "entware-opt_1.0-51_mipsel.ipk" 
+            "entware-opt_1.0-50_mipsel.ipk"
+        )
+        
+        local PACKAGES_URL="http://bin.entware.net/${ARCH}/packages"
+        for entware_file in "${entware_backup_files[@]}"; do
+            log_info "尝试备用版本: $entware_file..."
+            if wget --timeout=30 --tries=2 "$PACKAGES_URL/$entware_file" -O entware-opt.ipk 2>/dev/null; then
+                log_success "✓ entware-opt备用包下载成功: $entware_file"
+                entware_downloaded=true
+                break
+            fi
+        done
+    fi
     
     if [ "$entware_downloaded" = false ]; then
         log_warning "entware-opt包下载失败，尝试备用方案"
@@ -431,14 +439,27 @@ download_mips_packages() {
     cat > package_list.txt << 'EOF'
 # MIPS架构包列表 - 适用于Padavan/OpenWrt
 # 格式: 包名|下载URL|文件名
+# 基础系统库
+zlib|packages|zlib_1.2.13-1_mipsel_24kc.ipk
+libffi|packages|libffi_3.4.4-1_mipsel_24kc.ipk
+openssl-util|packages|openssl-util_3.0.8-1_mipsel_24kc.ipk
+libssl3|packages|libssl3_3.0.8-1_mipsel_24kc.ipk
+libcrypto3|packages|libcrypto3_3.0.8-1_mipsel_24kc.ipk
+# SQLite
+libsqlite3-0|packages|libsqlite3-0_3.41.2-1_mipsel_24kc.ipk
+sqlite3-cli|packages|sqlite3-cli_3.41.2-1_mipsel_24kc.ipk
+# Python环境
 python3|packages|python3_3.10.13-2_mipsel_24kc.ipk
 python3-pip|packages|python3-pip_23.0.1-1_mipsel_24kc.ipk
 python3-dev|packages|python3-dev_3.10.13-2_mipsel_24kc.ipk
 python3-setuptools|packages|python3-setuptools_65.5.0-1_mipsel_24kc.ipk
-ffmpeg|packages|ffmpeg_5.1.3-1_mipsel_24kc.ipk
+python3-wheel|packages|python3-wheel_0.40.0-1_mipsel_24kc.ipk
+# 网络工具
 curl|packages|curl_8.6.0-1_mipsel_24kc.ipk
-wget|packages|wget-ssl_1.21.4-1_mipsel_24kc.ipk
+wget-ssl|packages|wget-ssl_1.21.4-1_mipsel_24kc.ipk
 unzip|packages|unzip_6.0-8_mipsel_24kc.ipk
+# 多媒体
+ffmpeg|packages|ffmpeg_5.1.3-1_mipsel_24kc.ipk
 EOF
 
     # 下载包函数
@@ -539,34 +560,30 @@ install_package() {
 # 安装顺序很重要，先安装基础库
 log_info "开始安装MIPS依赖包..."
 
-# 基础库
+# 基础系统库（按依赖关系排序）
 install_package "zlib_*.ipk"
 install_package "libffi_*.ipk"
 install_package "libssl3_*.ipk"
 install_package "libcrypto3_*.ipk"
-install_package "libbz2_*.ipk"
-install_package "libreadline8_*.ipk"
-install_package "libncurses6_*.ipk"
-install_package "libexpat_*.ipk"
+install_package "openssl-util_*.ipk"
 
 # SQLite
-install_package "libsqlite3_*.ipk"
+install_package "libsqlite3-0_*.ipk"
 install_package "sqlite3-cli_*.ipk"
 
 # 网络工具
-install_package "openssl-util_*.ipk"
 install_package "curl_*.ipk"
-install_package "wget_*.ipk"
+install_package "wget-ssl_*.ipk"
 install_package "unzip_*.ipk"
 
-# Python
+# Python环境（按依赖关系排序）
 install_package "python3_*.ipk"
 install_package "python3-setuptools_*.ipk"
 install_package "python3-wheel_*.ipk"
 install_package "python3-pip_*.ipk"
 install_package "python3-dev_*.ipk"
 
-# 多媒体
+# 多媒体支持
 install_package "ffmpeg_*.ipk"
 
 log_success "MIPS依赖包安装完成！"
