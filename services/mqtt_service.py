@@ -599,6 +599,13 @@ class MQTTManager:
                     logger.info("MQTT服务未启用")
                     return
                 
+                # 在启动MQTT前先同步一遍巴法云设备信息
+                logger.info("启动MQTT前，先同步巴法云设备信息...")
+                try:
+                    self._sync_bemfa_devices_before_mqtt()
+                except Exception as sync_error:
+                    logger.warning(f"同步巴法云设备信息时出错: {str(sync_error)}")
+                
                 # 优先使用新的BemfaKey配置
                 bemfa_keys = BemfaKey.query.filter_by(enabled=True).all()
                 
@@ -619,6 +626,57 @@ class MQTTManager:
                 
         except Exception as e:
             logger.error(f"启动MQTT服务时出错: {str(e)}")
+
+    def _sync_bemfa_devices_before_mqtt(self):
+        """在启动MQTT前同步巴法云设备信息"""
+        try:
+            from .bemfa_service import BemfaSyncService
+            
+            bemfa_sync_service = BemfaSyncService()
+            result = bemfa_sync_service.sync_visible_devices_to_bemfa()
+            
+            if result:
+                created_count = result.get('created_count', 0)
+                updated_count = result.get('updated_count', 0)
+                deleted_count = result.get('deleted_count', 0)
+                failed_count = result.get('failed_count', 0)
+                total_devices = result.get('total_devices', 0)
+                accounts = result.get('accounts', [])
+                
+                if created_count > 0 or updated_count > 0 or deleted_count > 0:
+                    sync_summary = []
+                    if created_count > 0:
+                        sync_summary.append(f"创建 {created_count} 个主题")
+                    if updated_count > 0:
+                        sync_summary.append(f"更新 {updated_count} 个昵称")
+                    if deleted_count > 0:
+                        sync_summary.append(f"删除 {deleted_count} 个多余主题")
+                    
+                    logger.info(f"巴法云设备同步完成: {', '.join(sync_summary)}")
+                    
+                    if len(accounts) > 1:
+                        logger.info(f"同步到 {len(accounts)} 个巴法云账号:")
+                        for account in accounts:
+                            if account.get('success', False):
+                                logger.info(f"  - {account['name']}: 创建 {account['created']}, 更新 {account['updated']}, 删除 {account['deleted']}")
+                            else:
+                                logger.warning(f"  - {account['name']}: 同步失败 - {account.get('error', '未知错误')}")
+                    
+                    if failed_count > 0:
+                        logger.warning(f"同步过程中有 {failed_count} 个操作失败")
+                else:
+                    if total_devices > 0:
+                        logger.info(f"所有 {total_devices} 个可见设备的巴法云主题都已同步，无需更新")
+                    else:
+                        logger.info("没有可见设备需要同步到巴法云")
+            else:
+                logger.info("巴法云设备同步完成，但没有返回同步结果")
+                
+        except ImportError:
+            logger.warning("巴法云同步服务模块未找到，跳过设备信息同步")
+        except Exception as e:
+            logger.error(f"同步巴法云设备信息失败: {str(e)}")
+            # 不抛出异常，允许MQTT服务继续启动
 
     def delayed_mqtt_init(self):
         """延迟启动MQTT服务，确保应用完全启动后再连接"""
