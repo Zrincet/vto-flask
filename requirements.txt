@@ -12,4 +12,4 @@ blinker==1.6.3
 SQLAlchemy==2.0.21
 HAP-python[QRCode]==4.9.2
 zeroconf==0.131.0
-pypng==0.20221105
+pypng==0.20220715.0
