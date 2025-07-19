@@ -10,4 +10,4 @@ itsdangerous==2.1.2
 click==8.1.7
 blinker==1.6.3
 SQLAlchemy==2.0.21
-HAP-python[QRCode]==4.9.2
+Hap-python-pycryptodome[QRCode]==4.9.5
