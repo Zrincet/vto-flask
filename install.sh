@@ -72,7 +72,7 @@ check_and_install_opkg() {
         return 0
     fi
     
-    log_warning "opkg未安装，开始自动安装Entware..."
+    log_warning "opkg未安装，开始离线安装opkg..."
     
     # 检查/opt目录是否已挂载
     if [ ! -d "/opt" ]; then
@@ -92,12 +92,44 @@ check_and_install_opkg() {
             log_info "检测到MIPS架构: $ARCH"
             ;;
         *)
-            log_warning "未知架构: $ARCH，尝试通用安装"
+            log_warning "未知架构: $ARCH，尝试继续安装"
             ;;
     esac
     
-    # 安装Entware
-    log_info "下载并安装Entware..."
+    # 检查是否有离线opkg文件
+    if [ -d "$TMP_DIR/vto-package/opkg-core" ]; then
+        log_info "发现离线opkg文件，开始离线安装..."
+        
+        cd "$TMP_DIR/vto-package/opkg-core"
+        
+        if [ -f "install_opkg.sh" ]; then
+            log_info "执行离线opkg安装脚本..."
+            chmod +x install_opkg.sh
+            if ./install_opkg.sh; then
+                log_success "离线opkg安装成功"
+                
+                # 更新PATH环境变量
+                export PATH="/opt/bin:/opt/sbin:$PATH"
+                
+                # 验证opkg是否可用
+                if command -v opkg >/dev/null 2>&1; then
+                    log_success "opkg安装验证成功"
+                    return 0
+                else
+                    log_warning "opkg安装后验证失败，尝试在线安装"
+                fi
+            else
+                log_warning "离线opkg安装失败，尝试在线安装"
+            fi
+        else
+            log_warning "离线opkg安装脚本不存在，尝试在线安装"
+        fi
+    else
+        log_warning "未发现离线opkg文件，尝试在线安装"
+    fi
+    
+    # 如果离线安装失败，尝试在线安装Entware
+    log_info "尝试在线安装Entware..."
     
     # 尝试不同的Entware安装脚本（BusyBox兼容）
     install_success=false
@@ -124,34 +156,7 @@ check_and_install_opkg() {
                 log_success "Entware安装成功"
                 install_success=true
             else
-                log_warning "第三个源安装失败，尝试备用源..."
-                
-                # 尝试第四个源
-                log_info "尝试从 http://bin.entware.net/mips-k3.4/installer/generic.sh 安装..."
-                if curl -s "http://bin.entware.net/mips-k3.4/installer/generic.sh" 2>/dev/null | /bin/sh; then
-                    log_success "Entware安装成功"
-                    install_success=true
-                else
-                    log_warning "第四个源安装失败，尝试备用源..."
-                    
-                    # 尝试第五个源
-                    log_info "尝试从 http://bin.entware.net/mipsel-k3.2/installer/generic.sh 安装..."
-                    if curl -s "http://bin.entware.net/mipsel-k3.2/installer/generic.sh" 2>/dev/null | /bin/sh; then
-                        log_success "Entware安装成功"
-                        install_success=true
-                    else
-                        log_warning "第五个源安装失败，尝试最后一个源..."
-                        
-                        # 尝试第六个源
-                        log_info "尝试从 http://bin.entware.net/mips-k3.2/installer/generic.sh 安装..."
-                        if curl -s "http://bin.entware.net/mips-k3.2/installer/generic.sh" 2>/dev/null | /bin/sh; then
-                            log_success "Entware安装成功"
-                            install_success=true
-                        else
-                            log_warning "所有Entware安装源都失败"
-                        fi
-                    fi
-                fi
+                error_exit "所有Entware安装源都失败，请检查网络连接或手动安装"
             fi
         fi
     fi
@@ -176,6 +181,7 @@ check_and_install_opkg() {
         fi
         
         # 创建环境配置脚本
+        mkdir -p /opt/etc/profile.d
         cat > /opt/etc/profile.d/entware.sh << 'EOF'
 #!/bin/sh
 # Entware环境配置
@@ -236,8 +242,20 @@ check_disk_space() {
 install_system_packages() {
     log_info "安装系统依赖包..."
     
-    # 检查是否存在本地opkg包
-    if [ -d "$INSTALL_DIR/opkg-packages" ] && [ -f "$INSTALL_DIR/opkg-packages/install_packages.sh" ]; then
+    # 检查是否存在本地opkg包（在解压后的目录中）
+    if [ -d "$TMP_DIR/vto-package/opkg-packages" ] && [ -f "$TMP_DIR/vto-package/opkg-packages/install_packages.sh" ]; then
+        log_info "发现离线opkg包，使用离线安装..."
+        
+        cd "$TMP_DIR/vto-package/opkg-packages"
+        chmod +x install_packages.sh
+        
+        if ./install_packages.sh; then
+            log_success "离线依赖包安装完成"
+            return 0
+        else
+            log_warning "离线包安装失败，尝试网络安装..."
+        fi
+    elif [ -d "$INSTALL_DIR/opkg-packages" ] && [ -f "$INSTALL_DIR/opkg-packages/install_packages.sh" ]; then
         log_info "发现本地opkg包，使用本地安装..."
         
         cd "$INSTALL_DIR/opkg-packages"
@@ -245,14 +263,16 @@ install_system_packages() {
         
         if ./install_packages.sh; then
             log_success "本地依赖包安装完成"
+            return 0
         else
             log_warning "本地包安装失败，尝试网络安装..."
-            install_packages_from_network
         fi
     else
-        log_info "未发现本地包，从网络安装..."
-        install_packages_from_network
+        log_info "未发现离线包，尝试网络安装..."
     fi
+    
+    # 备用方案：从网络安装
+    install_packages_from_network
 }
 
 # 从网络安装包（备用方案）
