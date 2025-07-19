@@ -3,7 +3,7 @@
 # VTO设备管理系统 - Padavan MIPS架构自动安装脚本
 # 适用于Padavan固件的路由器
 # 功能：自动安装Entware、opkg包管理器，并部署VTO应用
-# 使用方法: sh -c "$(curl -kfsSL https://your-server.com/install.sh)"
+# 使用方法: sh -c "$(curl -kfsSL https://oss-hk.hozoy.cn/vto-flask/install.sh)"
 
 # BusyBox兼容脚本 - 移除颜色输出
 
