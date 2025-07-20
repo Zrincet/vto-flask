@@ -613,41 +613,36 @@ class HomeKitManager:
         }
     
     def get_pairing_qr_code(self):
-        """获取配对二维码数据"""
+        """获取配对二维码URL和PIN码"""
         try:
             if not self.is_running or not self.bridge:
                 return None
             
-            # 生成XHM URI
-            from pyhap import SUPPORT_QR_CODE
-            if SUPPORT_QR_CODE:
-                import base64
-                import io
-                from pyqrcode import QRCode
-                
+            # 获取PIN码
+            setup_code = self.driver.state.pincode.decode() if self.driver else None
+            
+            # 尝试生成XHM URI
+            try:
                 xhm_uri = self.bridge.xhm_uri()
-                
-                # 生成二维码
-                qr = QRCode(xhm_uri)
-                buffer = io.BytesIO()
-                qr.png(buffer, scale=4)
-                qr_data = base64.b64encode(buffer.getvalue()).decode()
-                
                 return {
-                    'qr_code_data': qr_data,
-                    'setup_code': self.driver.state.pincode.decode(),
-                    'xhm_uri': xhm_uri
+                    'xhm_uri': xhm_uri,
+                    'setup_code': setup_code,
+                    'success': True
                 }
-            else:
+            except Exception as uri_error:
+                logger.warning(f"生成XHM URI失败: {str(uri_error)}")
                 return {
-                    'setup_code': self.driver.state.pincode.decode() if self.driver else None
+                    'setup_code': setup_code,
+                    'success': True,
+                    'xhm_uri': None
                 }
                 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            logger.error(f"生成配对二维码失败: {str(e)}")
-            return None
+            logger.error(f"获取配对信息失败: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
 class HomeKitService:
     """HomeKit服务封装类"""

@@ -176,6 +176,11 @@
                 <small class="text-muted">在iPhone家庭应用中手动添加时使用此PIN码</small>
             </div>
             
+            <div id="qr-error-container" class="alert alert-warning" style="display: none;">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>无法生成二维码</h6>
+                <p class="mb-0">请使用上方的PIN码手动添加配件</p>
+            </div>
+            
             <div class="qr-instructions">
                 <h6><i class="fas fa-mobile-alt me-2"></i>使用方法</h6>
                 <ol class="text-start">
@@ -356,6 +361,8 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- 引入QRCode.js库 -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script>
 // 生成PIN码
 function generatePin() {
@@ -427,6 +434,7 @@ document.getElementById('device_id').addEventListener('change', function() {
 function loadHomeKitQRCode() {
     const container = document.getElementById('qr-code-container');
     const setupCodeContainer = document.getElementById('setup-code-container');
+    const qrErrorContainer = document.getElementById('qr-error-container');
     
     if (!container) return;
     
@@ -434,36 +442,61 @@ function loadHomeKitQRCode() {
     .then(response => response.json())
     .then(data => {
         if (data.success && data.data) {
-            if (data.data.qr_code_data) {
-                // 显示二维码
-                container.innerHTML = `
-                    <div class="qr-code-display">
-                        <img src="data:image/png;base64,${data.data.qr_code_data}" 
-                             alt="HomeKit配对二维码" 
-                             class="img-fluid" 
-                             style="max-width: 300px; border: 1px solid #ddd; border-radius: 8px;">
-                    </div>
-                `;
-            } else {
-                // 仅显示PIN码
-                container.innerHTML = `
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        二维码功能不可用，请使用PIN码手动配对
-                    </div>
-                `;
-            }
-            
             // 显示PIN码
             if (data.data.setup_code) {
                 document.getElementById('setup-code-display').textContent = data.data.setup_code;
                 setupCodeContainer.style.display = 'block';
             }
+            
+            // 生成二维码
+            if (data.data.xhm_uri && typeof QRCode !== 'undefined') {
+                // 清空容器并创建canvas
+                container.innerHTML = '<canvas id="qr-canvas"></canvas>';
+                
+                // 使用QRCode.js生成二维码
+                QRCode.toCanvas(document.getElementById('qr-canvas'), data.data.xhm_uri, {
+                    width: 300,
+                    height: 300,
+                    margin: 2,
+                    color: {
+                        dark: '#000000',
+                        light: '#FFFFFF'
+                    }
+                }, function (error) {
+                    if (error) {
+                        console.error('QR Code generation error:', error);
+                        showQRError(container, qrErrorContainer);
+                    } else {
+                        console.log('QR Code generated successfully');
+                        // 为canvas添加样式
+                        const canvas = document.getElementById('qr-canvas');
+                        if (canvas) {
+                            canvas.style.border = '1px solid #ddd';
+                            canvas.style.borderRadius = '8px';
+                            canvas.style.maxWidth = '300px';
+                        }
+                    }
+                });
+            } else if (data.data.xhm_uri) {
+                // 没有QRCode库，使用在线服务生成
+                container.innerHTML = `
+                    <div class="qr-code-display">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.data.xhm_uri)}" 
+                             alt="HomeKit配对二维码" 
+                             class="img-fluid" 
+                             style="max-width: 300px; border: 1px solid #ddd; border-radius: 8px;"
+                             onerror="showQRError(document.getElementById('qr-code-container'), document.getElementById('qr-error-container'))">
+                    </div>
+                `;
+            } else {
+                // 没有XHM URI
+                showQRError(container, qrErrorContainer);
+            }
         } else {
             container.innerHTML = `
                 <div class="alert alert-danger">
                     <i class="fas fa-exclamation-circle me-2"></i>
-                    ${data.message || '无法获取配对信息'}
+                    ${data.message || data.error || '无法获取配对信息'}
                 </div>
             `;
         }
@@ -477,6 +510,22 @@ function loadHomeKitQRCode() {
             </div>
         `;
     });
+}
+
+// 显示二维码错误信息
+function showQRError(container, errorContainer) {
+    if (container) {
+        container.innerHTML = `
+            <div class="text-muted text-center">
+                <i class="fas fa-qrcode" style="font-size: 4rem; opacity: 0.3;"></i>
+                <p class="mt-2">无法生成二维码</p>
+            </div>
+        `;
+    }
+    
+    if (errorContainer) {
+        errorContainer.style.display = 'block';
+    }
 }
 
 // 页面加载完成后加载二维码
