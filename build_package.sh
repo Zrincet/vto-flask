@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# VTO设备管理系统 - MIPS架构打包编译脚本（无Docker版本）
-# 在x86_64机器上运行，生成适用于Padavan MIPS架构的部署包
+# VTO设备管理系统 - MIPS架构离线打包脚本
+# 在x86_64机器上运行，生成完全离线的Padavan MIPS架构部署包
 # 使用方法: ./build_package.sh
 
 # 颜色输出
@@ -17,24 +17,11 @@ SOURCE_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/dist"
 PACKAGE_NAME="vto-mips-package.zip"
 
-# MIPS包下载配置 - 使用官方entware仓库
+# entware官方仓库
 ENTWARE_REPO="http://bin.entware.net/mipselsf-k3.4"
 
-# 必需的MIPS包列表 - 基于官方entware仓库
-REQUIRED_PACKAGES=(
-    "python3"
-    "libpython3"
-    "python3-base"
-    "python3-light"
-    "python3-sqlite3"
-    "libsqlite3"
-    "ffmpeg"
-    "libffmpeg-full"
-    "zlib"
-    "libffi"
-    "libopenssl"
-    "ca-certificates"
-)
+# 预编译Python环境下载地址
+VENV_URL="https://oss-hk.hozoy.cn/vto-flask/venv.zip"
 
 # 日志函数
 log_info() {
@@ -59,129 +46,36 @@ error_exit() {
     exit 1
 }
 
-# 检测Linux发行版
-detect_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=$ID
-        VERSION=$VERSION_ID
-    elif [ -f /etc/redhat-release ]; then
-        OS="centos"
-    elif [ -f /etc/debian_version ]; then
-        OS="debian"
-    else
-        OS="unknown"
-    fi
-    echo "$OS"
-}
+# 显示帮助信息
+show_help() {
+    cat << EOF
+VTO设备管理系统 - MIPS架构离线打包脚本
 
-# 安装Python开发环境
-install_python_dev() {
-    log_info "检查Python开发环境..."
-    
-    OS=$(detect_os)
-    log_info "检测到系统: $OS"
-    
-    case "$OS" in
-        "ubuntu"|"debian")
-            log_info "使用APT安装Python开发环境..."
-            if command -v apt-get >/dev/null 2>&1; then
-                apt-get update >/dev/null 2>&1 || sudo apt-get update
-                apt-get install -y python3 python3-pip python3-venv python3-dev build-essential >/dev/null 2>&1 || \
-                sudo apt-get install -y python3 python3-pip python3-venv python3-dev build-essential
-            fi
-            ;;
-            
-        "centos"|"rhel"|"rocky"|"almalinux")
-            log_info "使用YUM安装Python开发环境..."
-            if command -v yum >/dev/null 2>&1; then
-                yum install -y python3 python3-pip python3-devel gcc gcc-c++ make >/dev/null 2>&1 || \
-                sudo yum install -y python3 python3-pip python3-devel gcc gcc-c++ make
-            fi
-            ;;
-            
-        "fedora")
-            log_info "使用DNF安装Python开发环境..."
-            if command -v dnf >/dev/null 2>&1; then
-                dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make >/dev/null 2>&1 || \
-                sudo dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
-            fi
-            ;;
-            
-        "arch"|"manjaro")
-            log_info "使用Pacman安装Python开发环境..."
-            if command -v pacman >/dev/null 2>&1; then
-                pacman -S --noconfirm python python-pip base-devel >/dev/null 2>&1 || \
-                sudo pacman -S --noconfirm python python-pip base-devel
-            fi
-            ;;
-            
-        *)
-            log_warning "未识别的Linux发行版: $OS，跳过自动安装"
-            ;;
-    esac
-    
-    log_success "Python开发环境检查完成"
-}
+用法:
+  ./build_package.sh [选项]
 
-# 检查依赖工具
-check_dependencies() {
-    log_info "检查编译依赖..."
-    
-    # 检查基本工具
-    BASIC_TOOLS="wget tar git python3 zip"
-    MISSING_TOOLS=""
-    
-    for tool in $BASIC_TOOLS; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            if [ "$tool" = "python3" ]; then
-                # 尝试检查python
-                if ! command -v python >/dev/null 2>&1; then
-                    MISSING_TOOLS="$MISSING_TOOLS $tool"
-                fi
-            else
-                MISSING_TOOLS="$MISSING_TOOLS $tool"
-            fi
-        fi
-    done
-    
-    if [ -n "$MISSING_TOOLS" ]; then
-        log_error "以下必需工具未安装:$MISSING_TOOLS"
-        log_info "请先安装这些工具，例如："
-        
-        OS=$(detect_os)
-        case "$OS" in
-            "ubuntu"|"debian")
-                log_info "sudo apt-get install$MISSING_TOOLS"
-                ;;
-            "centos"|"rhel"|"rocky"|"almalinux")
-                log_info "sudo yum install$MISSING_TOOLS"
-                ;;
-            "fedora")
-                log_info "sudo dnf install$MISSING_TOOLS"
-                ;;
-            "arch"|"manjaro")
-                log_info "sudo pacman -S$MISSING_TOOLS"
-                ;;
-        esac
-        exit 1
-    fi
-    
-    # 检查pip
-    if ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
-        log_warning "pip未安装，尝试安装..."
-        if command -v python3 >/dev/null 2>&1; then
-            python3 -m ensurepip --default-pip >/dev/null 2>&1 || install_python_dev
-        fi
-    fi
-    
-    # 检查Python虚拟环境支持
-    if ! python3 -m venv --help >/dev/null 2>&1; then
-        log_warning "Python venv模块不可用，尝试安装..."
-        install_python_dev
-    fi
-    
-    log_success "依赖检查通过"
+选项:
+  -h, --help              显示此帮助信息
+  --keep-workspace        保留工作目录（用于调试）
+
+功能:
+  ✓ 下载opkg核心文件
+  ✓ 下载Python3和FFmpeg的ipk包
+  ✓ 下载预编译的Python虚拟环境
+  ✓ 打包VTO应用程序源码
+  ✓ 生成完全离线的安装包
+
+输出:
+  生成的包文件: $OUTPUT_DIR/$PACKAGE_NAME
+
+示例:
+  # 普通打包
+  ./build_package.sh
+
+  # 保留工作目录用于调试
+  ./build_package.sh --keep-workspace
+
+EOF
 }
 
 # 创建工作目录
@@ -193,87 +87,166 @@ setup_workspace() {
     mkdir -p "$WORK_DIR"
     mkdir -p "$OUTPUT_DIR"
     
-    # 创建子目录
+    # 创建包结构目录
     mkdir -p "$WORK_DIR/package"
+    mkdir -p "$WORK_DIR/package/opkg-core"
+    mkdir -p "$WORK_DIR/package/ipk-packages"
+    mkdir -p "$WORK_DIR/package/install-scripts"
     
     log_success "工作环境创建完成: $WORK_DIR"
 }
 
-# 下载opkg本体和配置文件
+# 下载opkg核心文件
 download_opkg_core() {
     log_info "下载opkg核心文件..."
     
-    # 创建opkg核心文件目录
-    mkdir -p "$WORK_DIR/package/opkg-core"
     cd "$WORK_DIR/package/opkg-core"
     
-    # MIPS架构配置
-    local ARCH="mipselsf-k3.4"
-    local INSTALLER_URL="http://bin.entware.net/${ARCH}/installer"
-    
+    # 下载opkg二进制文件
     log_info "下载opkg二进制文件..."
-    if wget --timeout=30 --tries=3 "$INSTALLER_URL/opkg" -O opkg 2>/dev/null; then
-        chmod 755 opkg
+    if wget --timeout=30 --tries=3 "$ENTWARE_REPO/installer/opkg" -O opkg 2>/dev/null; then
+        chmod +x opkg
         log_success "✓ opkg二进制文件下载成功"
     else
-        log_error "✗ opkg二进制文件下载失败"
-        return 1
-    fi
-    
-    log_info "下载opkg配置文件..."
-    if wget --timeout=30 --tries=3 "$INSTALLER_URL/opkg.conf" -O opkg.conf 2>/dev/null; then
-        log_success "✓ opkg配置文件下载成功"
-    else
-        log_error "✗ opkg配置文件下载失败"
-        return 1
+        error_exit "opkg二进制文件下载失败"
     fi
     
     # 下载entware-opt包
     log_info "下载entware-opt包..."
-    local ENTWARE_OPT_URL="http://bin.entware.net/${ARCH}/entware-opt_227000-3_all.ipk"
-    
-    log_info "下载 entware-opt_227000-3_all.ipk..."
-    local entware_downloaded=false
-    if wget --timeout=30 --tries=3 "$ENTWARE_OPT_URL" -O entware-opt.ipk 2>/dev/null; then
+    if wget --timeout=30 --tries=3 "$ENTWARE_REPO/installer/entware-opt.ipk" -O entware-opt.ipk 2>/dev/null; then
         log_success "✓ entware-opt包下载成功"
-        entware_downloaded=true
     else
-        log_warning "✗ 主要entware-opt包下载失败，尝试备用版本..."
-        
-        # 备用版本列表
-        local entware_backup_files=(
-            "entware-opt_1.0-52_mipsel.ipk"
-            "entware-opt_1.0-51_mipsel.ipk" 
-            "entware-opt_1.0-50_mipsel.ipk"
-        )
-        
-        local PACKAGES_URL="http://bin.entware.net/${ARCH}/packages"
-        for entware_file in "${entware_backup_files[@]}"; do
-            log_info "尝试备用版本: $entware_file..."
-            if wget --timeout=30 --tries=2 "$PACKAGES_URL/$entware_file" -O entware-opt.ipk 2>/dev/null; then
-                log_success "✓ entware-opt备用包下载成功: $entware_file"
-                entware_downloaded=true
-                break
-            fi
-        done
+        error_exit "entware-opt包下载失败"
     fi
     
-    if [ "$entware_downloaded" = false ]; then
-        log_warning "entware-opt包下载失败，尝试备用方案"
-        # 创建一个最小的entware-opt替代包信息
-        cat > entware-opt-info.txt << 'EOF'
-# entware-opt包下载失败
-# 可以在目标设备上手动执行: opkg install entware-opt
+    # 创建opkg配置文件
+    cat > opkg.conf << 'EOF'
+src/gz entware http://bin.entware.net/mipselsf-k3.4
+dest root /
+dest ram /tmp
+lists_dir ext /var/lib/opkg
+option overlay_root /overlay
 EOF
+    
+    log_success "opkg核心文件准备完成"
+}
+
+# 下载所需的ipk包
+download_ipk_packages() {
+    log_info "下载MIPS架构的ipk包..."
+    
+    cd "$WORK_DIR/package/ipk-packages"
+    
+    # 定义需要下载的包列表
+    local packages=(
+        # Python3 环境及其依赖
+        "python3_3.11.10-1_mipsel-3.4.ipk"
+        "libpython3_3.11.10-1_mipsel-3.4.ipk"
+        "python3-base_3.11.10-1_mipsel-3.4.ipk"
+        "libbz2_1.0.8-1a_mipsel-3.4.ipk"
+        "zlib_1.3.1-1_mipsel-3.4.ipk"
+        "python3-light_3.11.10-1_mipsel-3.4.ipk"
+        "python3-asyncio_3.11.10-1_mipsel-3.4.ipk"
+        "python3-email_3.11.10-1_mipsel-3.4.ipk"
+        "python3-cgi_3.11.10-1_mipsel-3.4.ipk"
+        "python3-pydoc_3.11.10-1_mipsel-3.4.ipk"
+        "python3-cgitb_3.11.10-1_mipsel-3.4.ipk"
+        "python3-codecs_3.11.10-1_mipsel-3.4.ipk"
+        "libffi_3.4.7-1_mipsel-3.4.ipk"
+        "python3-ctypes_3.11.10-1_mipsel-3.4.ipk"
+        "libgdbm_1.23-1_mipsel-3.4.ipk"
+        "python3-dbm_3.11.10-1_mipsel-3.4.ipk"
+        "python3-decimal_3.11.10-1_mipsel-3.4.ipk"
+        "python3-distutils_3.11.10-1_mipsel-3.4.ipk"
+        "python3-logging_3.11.10-1_mipsel-3.4.ipk"
+        "liblzma_5.6.2-2_mipsel-3.4.ipk"
+        "python3-lzma_3.11.10-1_mipsel-3.4.ipk"
+        "python3-multiprocessing_3.11.10-1_mipsel-3.4.ipk"
+        "libncursesw_6.4-3_mipsel-3.4.ipk"
+        "python3-ncurses_3.11.10-1_mipsel-3.4.ipk"
+        "libatomic_8.4.0-11_mipsel-3.4.ipk"
+        "libopenssl_3.5.0-1_mipsel-3.4.ipk"
+        "ca-certificates_20241223-1_all.ipk"
+        "python3-openssl_3.11.10-1_mipsel-3.4.ipk"
+        "libreadline_8.2-2_mipsel-3.4.ipk"
+        "python3-readline_3.11.10-1_mipsel-3.4.ipk"
+        "libsqlite3_3.49.1-2_mipsel-3.4.ipk"
+        "python3-sqlite3_3.11.10-1_mipsel-3.4.ipk"
+        "python3-unittest_3.11.10-1_mipsel-3.4.ipk"
+        "python3-urllib_3.11.10-1_mipsel-3.4.ipk"
+        "libuuid_2.41-1_mipsel-3.4.ipk"
+        "python3-uuid_3.11.10-1_mipsel-3.4.ipk"
+        "python3-xml_3.11.10-1_mipsel-3.4.ipk"
+        # FFmpeg 及其依赖
+        "ffmpeg_6.1.2-3_mipsel-3.4.ipk"
+        "alsa-lib_1.2.11-1_mipsel-3.4.ipk"
+        "libgmp_6.3.0-1_mipsel-3.4.ipk"
+        "libnettle_3.10.1-1_mipsel-3.4.ipk"
+        "libgnutls_3.8.9-1_mipsel-3.4.ipk"
+        "libopus_1.5.2-1_mipsel-3.4.ipk"
+        "libiconv-full_1.18-1_mipsel-3.4.ipk"
+        "libv4l_1.28.0-1_mipsel-3.4.ipk"
+        "shine_3.1.1-1_mipsel-3.4.ipk"
+        "libx264_2024.05.13~4613ac3c-1_mipsel-3.4.ipk"
+        "libffmpeg-full_6.1.2-3_mipsel-3.4.ipk"
+    )
+    
+    local success_count=0
+    local total_count=${#packages[@]}
+    
+    for package in "${packages[@]}"; do
+        log_info "下载: $package"
+        if wget --timeout=30 --tries=3 "$ENTWARE_REPO/$package" -O "$package" 2>/dev/null; then
+            log_success "✓ $package 下载成功"
+            success_count=$((success_count + 1))
+        else
+            log_warning "✗ $package 下载失败"
+        fi
+    done
+    
+    log_info "IPK包下载完成: $success_count/$total_count 成功"
+    
+    if [ $success_count -lt $((total_count * 80 / 100)) ]; then
+        error_exit "关键包下载失败过多，请检查网络连接"
     fi
+}
+
+# 下载预编译的Python虚拟环境
+download_python_venv() {
+    log_info "下载预编译的Python虚拟环境..."
+    
+    cd "$WORK_DIR/package"
+    
+    if wget --timeout=60 --tries=3 "$VENV_URL" -O venv.zip 2>/dev/null; then
+        log_success "✓ Python虚拟环境下载成功"
+        
+        # 解压验证
+        if unzip -t venv.zip >/dev/null 2>&1; then
+            log_success "✓ venv.zip 文件完整性验证通过"
+        else
+            error_exit "venv.zip 文件损坏"
+        fi
+    else
+        log_warning "✗ Python虚拟环境下载失败，尝试使用curl..."
+        if curl -L -o venv.zip "$VENV_URL" --connect-timeout 60 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ Python虚拟环境下载成功"
+        else
+            error_exit "Python虚拟环境下载失败"
+        fi
+    fi
+}
+
+# 创建安装脚本
+create_install_scripts() {
+    log_info "创建安装脚本..."
+    
+    cd "$WORK_DIR/package/install-scripts"
     
     # 创建opkg安装脚本
     cat > install_opkg.sh << 'EOF'
 #!/bin/sh
 
-# opkg核心安装脚本
-# 在目标设备上离线安装opkg
-
+# opkg离线安装脚本
 log_info() {
     echo "[INFO] $1"
 }
@@ -286,262 +259,57 @@ log_error() {
     echo "[ERROR] $1"
 }
 
-error_exit() {
-    log_error "$1"
+log_info "开始安装opkg包管理器..."
+
+# 创建必要目录
+mkdir -p /opt/bin /opt/etc /opt/lib/opkg /opt/var/lock
+
+# 复制opkg二进制文件
+if cp opkg /opt/bin/ && chmod +x /opt/bin/opkg; then
+    log_success "opkg二进制文件安装完成"
+else
+    log_error "opkg二进制文件安装失败"
     exit 1
-}
+fi
 
-# 检查并创建目录结构
-setup_directories() {
-    log_info "创建opkg目录结构..."
-    
-    # 检查/opt目录
-    if [ ! -d /opt ]; then
-        log_info "创建/opt目录..."
-        mkdir /opt || error_exit "无法创建/opt目录"
-    fi
-    
-    # 创建必要的子目录
-    for folder in bin etc lib/opkg tmp var/lock; do
-        if [ ! -d "/opt/$folder" ]; then
-            log_info "创建目录: /opt/$folder"
-            mkdir -p "/opt/$folder" || error_exit "无法创建目录: /opt/$folder"
-        fi
-    done
-    
-    log_success "目录结构创建完成"
-}
-
-# 安装opkg核心文件
-install_opkg_core() {
-    log_info "安装opkg核心文件..."
-    
-    # 复制opkg二进制文件
-    if [ -f "opkg" ]; then
-        cp opkg /opt/bin/opkg || error_exit "无法复制opkg二进制文件"
-        chmod 755 /opt/bin/opkg
-        log_success "✓ opkg二进制文件安装完成"
-    else
-        error_exit "opkg二进制文件不存在"
-    fi
-    
-    # 复制配置文件
-    if [ -f "opkg.conf" ]; then
-        cp opkg.conf /opt/etc/opkg.conf || error_exit "无法复制opkg配置文件"
-        log_success "✓ opkg配置文件安装完成"
-    else
-        error_exit "opkg配置文件不存在"
-    fi
-    
-    # 更新PATH
-    export PATH="/opt/bin:/opt/sbin:$PATH"
-    
-    # 验证opkg安装
-    if /opt/bin/opkg --version >/dev/null 2>&1; then
-        log_success "✓ opkg安装验证成功"
-    else
-        error_exit "opkg安装验证失败"
-    fi
-}
+# 复制配置文件
+if cp opkg.conf /opt/etc/; then
+    log_success "opkg配置文件安装完成"
+else
+    log_error "opkg配置文件安装失败"
+    exit 1
+fi
 
 # 安装entware-opt包
-install_entware_opt() {
+if [ -f "entware-opt.ipk" ]; then
     log_info "安装entware-opt包..."
-    
-    if [ -f "entware-opt.ipk" ]; then
-        log_info "使用离线entware-opt包..."
-        if /opt/bin/opkg install entware-opt.ipk --force-depends 2>/dev/null; then
-            log_success "✓ entware-opt包安装成功"
-        else
-            log_warning "entware-opt包安装失败，尝试在线安装"
-            if /opt/bin/opkg update && /opt/bin/opkg install entware-opt; then
-                log_success "✓ entware-opt在线安装成功"
-            else
-                log_warning "entware-opt安装失败，但继续..."
-            fi
-        fi
+    if /opt/bin/opkg install entware-opt.ipk --force-depends; then
+        log_success "entware-opt包安装成功"
     else
-        log_info "尝试在线安装entware-opt..."
-        if /opt/bin/opkg update && /opt/bin/opkg install entware-opt; then
-            log_success "✓ entware-opt在线安装成功"
-        else
-            log_warning "entware-opt在线安装失败"
-        fi
+        log_info "entware-opt包安装失败，但继续进行"
     fi
-}
+fi
 
-# 配置环境
-setup_environment() {
-    log_info "配置opkg环境..."
-    
-    # 设置权限
-    chmod 777 /opt/tmp 2>/dev/null || true
-    
-    # 创建环境配置文件
-    mkdir -p /opt/etc/profile.d
-    cat > /opt/etc/profile.d/entware.sh << 'ENVEOF'
+# 更新PATH环境变量
+export PATH="/opt/bin:/opt/sbin:$PATH"
+
+# 创建环境配置文件
+mkdir -p /opt/etc/profile.d
+cat > /opt/etc/profile.d/entware.sh << 'EOFENV'
 #!/bin/sh
-# Entware环境配置
 export PATH="/opt/bin:/opt/sbin:$PATH"
 export LD_LIBRARY_PATH="/opt/lib:$LD_LIBRARY_PATH"
-ENVEOF
-    chmod +x /opt/etc/profile.d/entware.sh
-    
-    # 创建符号链接（如果需要）
-    for file in passwd group shells shadow gshadow; do
-        if [ -f "/etc/$file" ] && [ ! -f "/opt/etc/$file" ]; then
-            ln -sf "/etc/$file" "/opt/etc/$file" 2>/dev/null || true
-        fi
-    done
-    
-    # 创建localtime链接
-    if [ -f "/etc/localtime" ] && [ ! -f "/opt/etc/localtime" ]; then
-        ln -sf "/etc/localtime" "/opt/etc/localtime" 2>/dev/null || true
-    fi
-    
-    log_success "环境配置完成"
-}
+EOFENV
+chmod +x /opt/etc/profile.d/entware.sh
 
-# 主安装流程
-main_install() {
-    log_info "开始opkg离线安装..."
-    
-    setup_directories
-    install_opkg_core
-    install_entware_opt
-    setup_environment
-    
-    log_success "opkg离线安装完成！"
-    log_info "请将 /opt/bin 和 /opt/sbin 添加到 PATH 环境变量"
-    log_info "可以运行: export PATH=\"/opt/bin:/opt/sbin:\$PATH\""
-}
-
-# 执行安装
-main_install
+log_success "opkg安装完成"
 EOF
 
-    chmod +x install_opkg.sh
-    
-    cd "$WORK_DIR"
-    log_success "opkg核心文件下载完成"
-}
-
-# 下载MIPS架构的opkg包
-download_mips_packages() {
-    log_info "下载MIPS架构的软件包..."
-    
-    # 创建包目录
-    mkdir -p "$WORK_DIR/package/opkg-packages"
-    cd "$WORK_DIR/package/opkg-packages"
-    
-    # 创建包索引文件 - 基于官方entware仓库
-    cat > package_list.txt << 'EOF'
-# MIPS架构包列表 - 基于官方entware仓库(mipselsf-k3.4)
-# 格式: 包名|完整下载URL
-# Python3 环境及其依赖
-python3|http://bin.entware.net/mipselsf-k3.4/python3_3.11.10-1_mipsel-3.4.ipk
-libpython3|http://bin.entware.net/mipselsf-k3.4/libpython3_3.11.10-1_mipsel-3.4.ipk
-python3-base|http://bin.entware.net/mipselsf-k3.4/python3-base_3.11.10-1_mipsel-3.4.ipk
-libbz2|http://bin.entware.net/mipselsf-k3.4/libbz2_1.0.8-1a_mipsel-3.4.ipk
-zlib|http://bin.entware.net/mipselsf-k3.4/zlib_1.3.1-1_mipsel-3.4.ipk
-python3-light|http://bin.entware.net/mipselsf-k3.4/python3-light_3.11.10-1_mipsel-3.4.ipk
-python3-asyncio|http://bin.entware.net/mipselsf-k3.4/python3-asyncio_3.11.10-1_mipsel-3.4.ipk
-python3-email|http://bin.entware.net/mipselsf-k3.4/python3-email_3.11.10-1_mipsel-3.4.ipk
-python3-cgi|http://bin.entware.net/mipselsf-k3.4/python3-cgi_3.11.10-1_mipsel-3.4.ipk
-python3-pydoc|http://bin.entware.net/mipselsf-k3.4/python3-pydoc_3.11.10-1_mipsel-3.4.ipk
-python3-cgitb|http://bin.entware.net/mipselsf-k3.4/python3-cgitb_3.11.10-1_mipsel-3.4.ipk
-python3-codecs|http://bin.entware.net/mipselsf-k3.4/python3-codecs_3.11.10-1_mipsel-3.4.ipk
-libffi|http://bin.entware.net/mipselsf-k3.4/libffi_3.4.7-1_mipsel-3.4.ipk
-python3-ctypes|http://bin.entware.net/mipselsf-k3.4/python3-ctypes_3.11.10-1_mipsel-3.4.ipk
-libgdbm|http://bin.entware.net/mipselsf-k3.4/libgdbm_1.23-1_mipsel-3.4.ipk
-python3-dbm|http://bin.entware.net/mipselsf-k3.4/python3-dbm_3.11.10-1_mipsel-3.4.ipk
-python3-decimal|http://bin.entware.net/mipselsf-k3.4/python3-decimal_3.11.10-1_mipsel-3.4.ipk
-python3-distutils|http://bin.entware.net/mipselsf-k3.4/python3-distutils_3.11.10-1_mipsel-3.4.ipk
-python3-logging|http://bin.entware.net/mipselsf-k3.4/python3-logging_3.11.10-1_mipsel-3.4.ipk
-liblzma|http://bin.entware.net/mipselsf-k3.4/liblzma_5.6.2-2_mipsel-3.4.ipk
-python3-lzma|http://bin.entware.net/mipselsf-k3.4/python3-lzma_3.11.10-1_mipsel-3.4.ipk
-python3-multiprocessing|http://bin.entware.net/mipselsf-k3.4/python3-multiprocessing_3.11.10-1_mipsel-3.4.ipk
-libncursesw|http://bin.entware.net/mipselsf-k3.4/libncursesw_6.4-3_mipsel-3.4.ipk
-python3-ncurses|http://bin.entware.net/mipselsf-k3.4/python3-ncurses_3.11.10-1_mipsel-3.4.ipk
-libatomic|http://bin.entware.net/mipselsf-k3.4/libatomic_8.4.0-11_mipsel-3.4.ipk
-libopenssl|http://bin.entware.net/mipselsf-k3.4/libopenssl_3.5.0-1_mipsel-3.4.ipk
-ca-certificates|http://bin.entware.net/mipselsf-k3.4/ca-certificates_20241223-1_all.ipk
-python3-openssl|http://bin.entware.net/mipselsf-k3.4/python3-openssl_3.11.10-1_mipsel-3.4.ipk
-libreadline|http://bin.entware.net/mipselsf-k3.4/libreadline_8.2-2_mipsel-3.4.ipk
-python3-readline|http://bin.entware.net/mipselsf-k3.4/python3-readline_3.11.10-1_mipsel-3.4.ipk
-libsqlite3|http://bin.entware.net/mipselsf-k3.4/libsqlite3_3.49.1-2_mipsel-3.4.ipk
-python3-sqlite3|http://bin.entware.net/mipselsf-k3.4/python3-sqlite3_3.11.10-1_mipsel-3.4.ipk
-python3-unittest|http://bin.entware.net/mipselsf-k3.4/python3-unittest_3.11.10-1_mipsel-3.4.ipk
-python3-urllib|http://bin.entware.net/mipselsf-k3.4/python3-urllib_3.11.10-1_mipsel-3.4.ipk
-libuuid|http://bin.entware.net/mipselsf-k3.4/libuuid_2.41-1_mipsel-3.4.ipk
-python3-uuid|http://bin.entware.net/mipselsf-k3.4/python3-uuid_3.11.10-1_mipsel-3.4.ipk
-python3-xml|http://bin.entware.net/mipselsf-k3.4/python3-xml_3.11.10-1_mipsel-3.4.ipk
-# FFmpeg 及其依赖
-ffmpeg|http://bin.entware.net/mipselsf-k3.4/ffmpeg_6.1.2-3_mipsel-3.4.ipk
-alsa-lib|http://bin.entware.net/mipselsf-k3.4/alsa-lib_1.2.11-1_mipsel-3.4.ipk
-libgmp|http://bin.entware.net/mipselsf-k3.4/libgmp_6.3.0-1_mipsel-3.4.ipk
-libnettle|http://bin.entware.net/mipselsf-k3.4/libnettle_3.10.1-1_mipsel-3.4.ipk
-libgnutls|http://bin.entware.net/mipselsf-k3.4/libgnutls_3.8.9-1_mipsel-3.4.ipk
-libopus|http://bin.entware.net/mipselsf-k3.4/libopus_1.5.2-1_mipsel-3.4.ipk
-libiconv-full|http://bin.entware.net/mipselsf-k3.4/libiconv-full_1.18-1_mipsel-3.4.ipk
-libv4l|http://bin.entware.net/mipselsf-k3.4/libv4l_1.28.0-1_mipsel-3.4.ipk
-shine|http://bin.entware.net/mipselsf-k3.4/shine_3.1.1-1_mipsel-3.4.ipk
-libx264|http://bin.entware.net/mipselsf-k3.4/libx264_2024.05.13~4613ac3c-1_mipsel-3.4.ipk
-libffmpeg-full|http://bin.entware.net/mipselsf-k3.4/libffmpeg-full_6.1.2-3_mipsel-3.4.ipk
-EOF
-
-    # 下载包函数
-    download_package() {
-        local pkg_name="$1"
-        local download_url="$2"
-        local filename=$(basename "$download_url")
-        
-        log_info "下载 $pkg_name: $filename"
-        
-        # 尝试下载
-        if wget -q --timeout=30 --tries=3 "$download_url" -O "$filename" 2>/dev/null; then
-            log_success "✓ $pkg_name 下载成功"
-            return 0
-        else
-            log_warning "✗ $pkg_name 下载失败，尝试使用curl..."
-            
-            # 尝试curl
-            if curl -L -o "$filename" "$download_url" --connect-timeout 30 --max-time 300 --retry 2 --insecure 2>/dev/null; then
-                log_success "✓ $pkg_name 通过curl下载成功"
-                return 0
-            else
-                log_warning "✗ $pkg_name 下载失败"
-                return 1
-            fi
-        fi
-    }
-    
-    # 读取包列表并下载
-    local success_count=0
-    local total_count=0
-    
-    while IFS='|' read -r pkg_name download_url || [ -n "$pkg_name" ]; do
-        # 跳过注释行和空行
-        if [[ "$pkg_name" =~ ^#.*$ ]] || [ -z "$pkg_name" ]; then
-            continue
-        fi
-        
-        total_count=$((total_count + 1))
-        
-        if download_package "$pkg_name" "$download_url"; then
-            success_count=$((success_count + 1))
-        fi
-    done < package_list.txt
-    
-    log_info "包下载完成: $success_count/$total_count 成功"
-    
-    # 创建安装脚本
-    cat > install_packages.sh << 'EOF'
+    # 创建IPK包安装脚本
+    cat > install_ipk_packages.sh << 'EOF'
 #!/bin/sh
 
-# MIPS包安装脚本 - 基于官方entware包
-# 在目标设备上运行此脚本来安装所有依赖包
-
+# IPK包离线安装脚本
 log_info() {
     echo "[INFO] $1"
 }
@@ -556,8 +324,6 @@ log_warning() {
 
 install_package() {
     local pkg_pattern="$1"
-    
-    # 查找匹配的包文件
     local pkg_file=$(ls $pkg_pattern 2>/dev/null | head -1)
     
     if [ -f "$pkg_file" ]; then
@@ -572,10 +338,12 @@ install_package() {
     fi
 }
 
-# 安装顺序很重要，按照依赖关系排序
-log_info "开始安装官方entware依赖包..."
+log_info "开始安装IPK依赖包..."
 
-# 基础系统库（按依赖关系排序）
+# 更新PATH环境变量
+export PATH="/opt/bin:/opt/sbin:$PATH"
+
+# 按依赖顺序安装包
 install_package "zlib_*.ipk"
 install_package "libbz2_*.ipk"
 install_package "libffi_*.ipk"
@@ -585,20 +353,12 @@ install_package "libncursesw_*.ipk"
 install_package "libreadline_*.ipk"
 install_package "libgdbm_*.ipk"
 install_package "libuuid_*.ipk"
-
-# SSL/TLS支持
 install_package "libopenssl_*.ipk"
 install_package "ca-certificates_*.ipk"
-
-# SQLite
 install_package "libsqlite3_*.ipk"
-
-# Python基础环境（按依赖关系排序）
 install_package "libpython3_*.ipk"
 install_package "python3-base_*.ipk"
 install_package "python3-light_*.ipk"
-
-# Python核心模块
 install_package "python3-codecs_*.ipk"
 install_package "python3-email_*.ipk"
 install_package "python3-urllib_*.ipk"
@@ -608,8 +368,6 @@ install_package "python3-logging_*.ipk"
 install_package "python3-decimal_*.ipk"
 install_package "python3-distutils_*.ipk"
 install_package "python3-multiprocessing_*.ipk"
-
-# Python扩展模块
 install_package "python3-asyncio_*.ipk"
 install_package "python3-cgi_*.ipk"
 install_package "python3-cgitb_*.ipk"
@@ -622,11 +380,9 @@ install_package "python3-openssl_*.ipk"
 install_package "python3-readline_*.ipk"
 install_package "python3-sqlite3_*.ipk"
 install_package "python3-unittest_*.ipk"
-
-# Python主包
 install_package "python3_*.ipk"
 
-# FFmpeg多媒体支持依赖
+# FFmpeg依赖
 install_package "libgmp_*.ipk"
 install_package "libnettle_*.ipk"
 install_package "libgnutls_*.ipk"
@@ -636,543 +392,144 @@ install_package "libv4l_*.ipk"
 install_package "shine_*.ipk"
 install_package "libx264_*.ipk"
 install_package "alsa-lib_*.ipk"
-
-# FFmpeg多媒体库和主程序
 install_package "libffmpeg-full_*.ipk"
 install_package "ffmpeg_*.ipk"
 
-log_success "官方entware依赖包安装完成！"
-log_info "已安装Python 3.11.10和FFmpeg 6.1.2及其所有依赖"
+log_success "IPK包安装完成"
 EOF
 
-    chmod +x install_packages.sh
+    # 创建应用部署脚本
+    cat > deploy_application.sh << 'EOF'
+#!/bin/sh
+
+# VTO应用部署脚本
+log_info() {
+    echo "[INFO] $1"
+}
+
+log_success() {
+    echo "[SUCCESS] $1"
+}
+
+log_error() {
+    echo "[ERROR] $1"
+}
+
+INSTALL_DIR="/opt/vto"
+
+log_info "部署VTO应用程序..."
+
+# 创建安装目录
+mkdir -p "$INSTALL_DIR"
+
+# 备份现有安装
+if [ -d "$INSTALL_DIR" ] && [ "$(ls -A $INSTALL_DIR)" ]; then
+    BACKUP_DIR="$INSTALL_DIR"_backup_$(date +%Y%m%d_%H%M%S)
+    log_info "备份现有安装到: $BACKUP_DIR"
+    mv "$INSTALL_DIR" "$BACKUP_DIR"
+    mkdir -p "$INSTALL_DIR"
+fi
+
+# 复制应用文件
+log_info "复制应用文件..."
+cp -r *.py "$INSTALL_DIR/" 2>/dev/null || true
+cp -r templates "$INSTALL_DIR/" 2>/dev/null || true
+cp -r static "$INSTALL_DIR/" 2>/dev/null || true
+cp -r models "$INSTALL_DIR/" 2>/dev/null || true
+cp -r controllers "$INSTALL_DIR/" 2>/dev/null || true
+cp -r routes "$INSTALL_DIR/" 2>/dev/null || true
+cp -r services "$INSTALL_DIR/" 2>/dev/null || true
+cp -r utils "$INSTALL_DIR/" 2>/dev/null || true
+cp requirements.txt "$INSTALL_DIR/" 2>/dev/null || true
+cp *.sh "$INSTALL_DIR/" 2>/dev/null || true
+
+# 解压并复制Python虚拟环境
+if [ -f "venv.zip" ]; then
+    log_info "解压Python虚拟环境..."
+    unzip -q venv.zip -d "$INSTALL_DIR/"
+    log_success "Python虚拟环境部署完成"
+fi
+
+# 创建必要目录
+mkdir -p "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/db"
+mkdir -p "$INSTALL_DIR/instance"
+
+# 设置执行权限
+chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
+
+log_success "应用程序部署完成"
+EOF
+
+    # 设置执行权限
+    chmod +x *.sh
     
-    # 统计下载的包
-    local downloaded_count=$(ls -1 *.ipk 2>/dev/null | wc -l)
-    log_success "MIPS包下载完成，共 $downloaded_count 个包"
-    
-    cd "$WORK_DIR"
+    log_success "安装脚本创建完成"
 }
 
 # 复制源代码
 copy_source_code() {
     log_info "复制VTO源代码..."
     
-    # 复制必要的源文件
-    cp -r "$SOURCE_DIR"/*.py "$WORK_DIR/package/" 2>/dev/null || true
-    cp -r "$SOURCE_DIR"/templates "$WORK_DIR/package/" 2>/dev/null || true
-    cp -r "$SOURCE_DIR"/static "$WORK_DIR/package/" 2>/dev/null || true
-    cp "$SOURCE_DIR"/requirements.txt "$WORK_DIR/package/" 2>/dev/null || true
-    cp "$SOURCE_DIR"/server.sh "$WORK_DIR/package/" 2>/dev/null || true
-    cp "$SOURCE_DIR"/update_and_restart.sh "$WORK_DIR/package/" 2>/dev/null || true
-    cp "$SOURCE_DIR"/README.md "$WORK_DIR/package/" 2>/dev/null || true
+    cd "$WORK_DIR/package"
+    
+    # 复制应用文件
+    cp -r "$SOURCE_DIR"/*.py . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/templates . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/static . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/models . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/controllers . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/routes . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/services . 2>/dev/null || true
+    cp -r "$SOURCE_DIR"/utils . 2>/dev/null || true
+    cp "$SOURCE_DIR"/requirements.txt . 2>/dev/null || true
+    cp "$SOURCE_DIR"/server.sh . 2>/dev/null || true
+    cp "$SOURCE_DIR"/update_and_restart.sh . 2>/dev/null || true
+    cp "$SOURCE_DIR"/README.md . 2>/dev/null || true
     
     # 检查关键文件
-    if [ ! -f "$WORK_DIR/package/app.py" ]; then
+    if [ ! -f "app.py" ]; then
         error_exit "源代码中缺少 app.py 文件"
     fi
     
-    if [ ! -f "$WORK_DIR/package/requirements.txt" ]; then
+    if [ ! -f "requirements.txt" ]; then
         error_exit "源代码中缺少 requirements.txt 文件"
     fi
     
     log_success "源代码复制完成"
 }
 
-# 下载预编译的Python虚拟环境
-download_python_environment() {
-    log_info "下载预编译的Python虚拟环境..."
-    
-    # 创建临时下载目录
-    cd "$WORK_DIR"
-    mkdir -p temp-venv
-    cd temp-venv
-    
-    # 下载venv.zip
-    local VENV_URL="https://oss-hk.hozoy.cn/vto-flask/venv.zip"
-    log_info "下载地址: $VENV_URL"
-    
-    if wget --timeout=60 --tries=3 "$VENV_URL" -O venv.zip 2>/dev/null; then
-        log_success "✓ venv.zip下载成功"
-    else
-        log_warning "✗ venv.zip下载失败，尝试使用curl..."
-        if curl -L -o venv.zip "$VENV_URL" --connect-timeout 60 --max-time 300 --retry 3 --insecure; then
-            log_success "✓ venv.zip下载成功"
-        else
-            error_exit "预编译虚拟环境下载失败，请检查网络连接"
-        fi
-    fi
-    
-    # 检查文件完整性
-    if [ ! -f "venv.zip" ] || [ ! -s "venv.zip" ]; then
-        error_exit "下载的venv.zip文件损坏或为空"
-    fi
-    
-    # 显示下载文件信息
-    local VENV_SIZE=$(ls -lh venv.zip | awk '{print $5}')
-    log_info "虚拟环境包大小: $VENV_SIZE"
-    
-    # 解压venv.zip
-    log_info "解压Python虚拟环境..."
-    if unzip -q venv.zip; then
-        log_success "虚拟环境解压完成"
-    else
-        error_exit "虚拟环境解压失败"
-    fi
-    
-    # 检查解压后的venv目录
-    if [ ! -d "venv" ]; then
-        error_exit "解压后未找到venv目录"
-    fi
-    
-    # 复制虚拟环境到打包目录
-    cp -r venv "$WORK_DIR/package/"
-    
-    # 清理临时目录
-    cd "$WORK_DIR"
-    rm -rf temp-venv
-    
-    # 清理虚拟环境中的无用文件
-    log_info "清理虚拟环境..."
-    find "$WORK_DIR/package/venv" -name "*.pyc" -delete 2>/dev/null || true
-    find "$WORK_DIR/package/venv" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    find "$WORK_DIR/package/venv" -name "*.pyo" -delete 2>/dev/null || true
-    
-    # 验证虚拟环境
-    if [ -f "$WORK_DIR/package/venv/bin/python" ]; then
-        log_success "虚拟环境验证成功"
-        log_info "Python路径: $WORK_DIR/package/venv/bin/python"
-    else
-        log_warning "虚拟环境验证失败，缺少python解释器"
-    fi
-    
-    log_success "Python环境下载完成"
-}
-
-# 优化启动脚本
-optimize_scripts() {
-    log_info "优化启动脚本..."
-    
-    # 修改server.sh以适应MIPS环境
-    if [ -f "$WORK_DIR/package/server.sh" ]; then
-        # 确保使用busybox兼容的命令
-        sed -i 's/ps aux/ps/g' "$WORK_DIR/package/server.sh"
-        sed -i 's/hostname -I/hostname -i/g' "$WORK_DIR/package/server.sh" 2>/dev/null || true
-    fi
-    
-    # 创建环境检测脚本
-    cat > "$WORK_DIR/package/check_env.sh" << 'EOF'
-#!/bin/sh
-
-# 环境检测脚本
-echo "检测运行环境..."
-echo "架构: $(uname -m)"
-echo "内核: $(uname -r)"
-echo "Python版本: $(python3 --version 2>/dev/null || echo '未安装')"
-echo "可用内存: $(free -m | grep '^Mem:' | awk '{print $7}')MB"
-echo "磁盘空间: $(df -h /opt | tail -1 | awk '{print $4}')"
-EOF
-
-    chmod +x "$WORK_DIR/package/check_env.sh"
-    
-    log_success "脚本优化完成"
-}
-
-# 创建配置文件
-create_configs() {
-    log_info "创建配置文件..."
-    
-    # 创建默认配置
-    cat > "$WORK_DIR/package/config.json" << 'EOF'
-{
-    "app": {
-        "host": "0.0.0.0",
-        "port": 8998,
-        "debug": false
-    },
-    "database": {
-        "url": "sqlite:///vto_management.db"
-    },
-    "mqtt": {
-        "enabled": false,
-        "broker": "bemfa.com",
-        "port": 9501
-    },
-    "logging": {
-        "level": "INFO",
-        "file": "logs/app.log"
-    }
-}
-EOF
-
-    # 创建安装信息文件
-    cat > "$WORK_DIR/package/install_info.txt" << EOF
-VTO设备管理系统 - MIPS版本
-构建时间: $(date)
-构建主机: $(hostname)
-Python版本: $(python3 --version)
-目标架构: MIPS (Padavan)
-
-安装说明:
-1. 将此包上传到支持的MIPS设备
-2. 运行安装脚本进行部署
-3. 访问 http://设备IP:8998 使用系统
-
-默认账户: admin / 123456
-EOF
-
-    log_success "配置文件创建完成"
-}
-
-# 添加额外工具
-add_extra_tools() {
-    log_info "添加额外工具..."
-    
-    # 创建状态监控脚本
-    cat > "$WORK_DIR/package/monitor.sh" << 'EOF'
-#!/bin/sh
-
-# VTO应用监控脚本
-while true; do
-    if ! pgrep -f "python.*app.py" > /dev/null; then
-        echo "[$(date)] VTO应用未运行，尝试重启..."
-        cd /opt/vto && ./server.sh start
-    fi
-    sleep 60
-done
-EOF
-
-    chmod +x "$WORK_DIR/package/monitor.sh"
-    
-    # 创建备份脚本
-    cat > "$WORK_DIR/package/backup.sh" << 'EOF'
-#!/bin/sh
-
-# 数据备份脚本
-BACKUP_DIR="/opt/vto-backup/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$BACKUP_DIR"
-
-# 备份数据库
-cp vto_management.db "$BACKUP_DIR/" 2>/dev/null || true
-
-# 备份配置
-cp config.json "$BACKUP_DIR/" 2>/dev/null || true
-
-# 备份日志
-cp -r logs "$BACKUP_DIR/" 2>/dev/null || true
-
-echo "备份完成: $BACKUP_DIR"
-EOF
-
-    chmod +x "$WORK_DIR/package/backup.sh"
-    
-    log_success "额外工具添加完成"
-}
-
-# 优化打包文件
-optimize_package() {
-    log_info "优化打包文件..."
-    
-    cd "$WORK_DIR/package"
-    
-    # 删除不必要的文件
-    find . -name "*.pyc" -delete
-    find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    find . -name "*.pyo" -delete
-    find . -name ".DS_Store" -delete
-    find . -name "Thumbs.db" -delete
-    
-    # 创建日志目录
-    mkdir -p logs
-    
-    # 清理虚拟环境
-    if [ -d "venv" ]; then
-        find venv -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
-    fi
-    
-    log_success "文件优化完成"
-}
-
-# 创建最终包
-create_final_package() {
-    log_info "创建最终部署包..."
+# 创建最终的zip包
+create_package() {
+    log_info "创建部署包..."
     
     cd "$WORK_DIR"
     
     # 创建zip包
-    if cd package && zip -r "../$PACKAGE_NAME" . -x "*.git*" "*.svn*"; then
-        log_success "包创建成功: $PACKAGE_NAME"
-    else
-        error_exit "包创建失败"
-    fi
-    
-    # 移动到输出目录
-    mv "$WORK_DIR/$PACKAGE_NAME" "$OUTPUT_DIR/"
-    
-    # 计算文件大小和校验和
-    PACKAGE_PATH="$OUTPUT_DIR/$PACKAGE_NAME"
-    PACKAGE_SIZE=$(ls -lh "$PACKAGE_PATH" | awk '{print $5}')
-    PACKAGE_MD5=$(md5sum "$PACKAGE_PATH" | awk '{print $1}')
-    
-    log_success "部署包信息:"
-    log_info "  文件: $PACKAGE_PATH"
-    log_info "  大小: $PACKAGE_SIZE"
-    log_info "  MD5: $PACKAGE_MD5"
-}
-
-# 测试包完整性
-test_package() {
-    log_info "测试包完整性..."
-    
-    cd "$WORK_DIR"
-    mkdir -p test-extract
-    
-    # 解压测试
-    if unzip -q "$OUTPUT_DIR/$PACKAGE_NAME" -d test-extract; then
-        log_success "包解压测试通过"
-    else
-        error_exit "包解压测试失败"
-    fi
-    
-    # 检查关键文件
-    REQUIRED_FILES="app.py server.sh requirements.txt"
-    for file in $REQUIRED_FILES; do
-        if [ ! -f "test-extract/$file" ]; then
-            error_exit "关键文件缺失: $file"
-        fi
-    done
-    
-    # 检查虚拟环境
-    if [ ! -d "test-extract/venv" ]; then
-        log_warning "虚拟环境目录不存在"
-    elif [ ! -f "test-extract/venv/bin/python" ]; then
-        log_warning "虚拟环境Python解释器缺失"
-    else
-        log_success "虚拟环境检查通过"
-    fi
-    
-    # 检查opkg包
-    if [ ! -d "test-extract/opkg-packages" ]; then
-        log_warning "opkg包目录不存在"
-    else
-        local ipk_count=$(ls -1 test-extract/opkg-packages/*.ipk 2>/dev/null | wc -l)
-        if [ "$ipk_count" -gt 0 ]; then
-            log_success "opkg包检查通过，发现 $ipk_count 个包"
-        else
-            log_warning "opkg包目录为空"
-        fi
+    if zip -r "$OUTPUT_DIR/$PACKAGE_NAME" package/ >/dev/null 2>&1; then
+        log_success "部署包创建成功: $OUTPUT_DIR/$PACKAGE_NAME"
         
-        if [ -f "test-extract/opkg-packages/install_packages.sh" ]; then
-            log_success "opkg安装脚本存在"
-        else
-            log_warning "opkg安装脚本缺失"
-        fi
-    fi
-    
-    # 检查opkg核心文件
-    if [ ! -d "test-extract/opkg-core" ]; then
-        log_warning "opkg核心目录不存在"
+        # 显示包大小
+        PACKAGE_SIZE=$(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
+        log_info "包大小: $PACKAGE_SIZE"
+        
+        # 显示包内容概要
+        log_info "包内容概要:"
+        log_info "  ✓ opkg核心文件"
+        log_info "  ✓ Python3和FFmpeg的IPK包"
+        log_info "  ✓ 预编译Python虚拟环境"
+        log_info "  ✓ VTO应用程序源码"
+        log_info "  ✓ 离线安装脚本"
+        
     else
-        if [ -f "test-extract/opkg-core/opkg" ]; then
-            log_success "opkg二进制文件存在"
-        else
-            log_warning "opkg二进制文件缺失"
-        fi
-        
-        if [ -f "test-extract/opkg-core/opkg.conf" ]; then
-            log_success "opkg配置文件存在"
-        else
-            log_warning "opkg配置文件缺失"
-        fi
-        
-        if [ -f "test-extract/opkg-core/install_opkg.sh" ]; then
-            log_success "opkg安装脚本存在"
-        else
-            log_warning "opkg安装脚本缺失"
-        fi
+        error_exit "部署包创建失败"
     fi
-    
-    # 清理测试目录
-    rm -rf test-extract
-    
-    log_success "包完整性测试通过"
-}
-
-# 生成部署文档
-generate_deploy_docs() {
-    log_info "生成部署文档..."
-    
-    cat > "$OUTPUT_DIR/deploy_instructions.md" << EOF
-# VTO设备管理系统 - MIPS部署包使用说明
-
-## 部署包信息
-- 文件名: $PACKAGE_NAME
-- 构建时间: $(date)
-- 适用架构: MIPS (Padavan)
-- 大小: $(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
-- 构建方式: 预编译Python环境
-- 内置组件: 完全离线安装支持
-
-## 系统要求
-- Padavan固件路由器
-- 已挂载的/opt目录（推荐使用USB存储）
-- 至少200MB可用空间
-- 无需网络连接（完全离线安装）
-
-## 构建要求（用于编译此包）
-- Linux系统（支持多种发行版）
-- Python 3.7+
-- 基本开发工具（git, wget, tar, zip等）
-- 无需Docker（已移除Docker依赖）
-
-## 构建此部署包
-\`\`\`bash
-# 普通构建
-./build_package.sh
-
-# 保留工作目录用于调试
-./build_package.sh --keep-workspace
-
-# 查看帮助信息
-./build_package.sh --help
-\`\`\`
-
-## 内置组件说明
-此部署包内置了以下组件，完全离线安装：
-
-**opkg包管理器**
-- opkg二进制文件
-- opkg配置文件
-- entware-opt基础包
-- 离线安装脚本
-
-**Python环境**
-- python3 (3.10.13)
-- python3-pip (23.0.1)
-- python3-dev
-- python3-setuptools
-- python3-wheel
-
-**系统依赖**
-- sqlite3-cli + libsqlite3
-- curl + wget + unzip
-- openssl-util
-- zlib + libffi + 其他运行时库
-
-**多媒体支持**
-- ffmpeg (5.1.3)
-
-## 自动安装方法
-\`\`\`bash
-# 一键安装（推荐）
-sh -c "\$(curl -kfsSL https://oss-hk.hozoy.cn/vto-flask/install.sh)"
-\`\`\`
-
-## 手动安装方法
-
-### 1. 上传文件
-将 $PACKAGE_NAME 上传到路由器的 /opt/tmp/ 目录
-
-### 2. 解压文件
-\`\`\`bash
-cd /opt/tmp
-unzip $PACKAGE_NAME
-\`\`\`
-
-### 3. 移动到安装目录
-\`\`\`bash
-mkdir -p /opt/vto
-cp -r vto-package/* /opt/vto/
-\`\`\`
-
-### 4. 离线安装opkg（如果未安装）
-\`\`\`bash
-cd /opt/vto/opkg-core
-chmod +x install_opkg.sh
-./install_opkg.sh
-\`\`\`
-
-### 5. 安装系统依赖（使用内置包）
-\`\`\`bash
-cd /opt/vto/opkg-packages
-chmod +x install_packages.sh
-./install_packages.sh
-\`\`\`
-
-### 6. 启动应用
-\`\`\`bash
-cd /opt/vto
-chmod +x *.sh
-./server.sh start
-\`\`\`
-
-## 应用管理
-
-### 服务控制
-\`\`\`bash
-cd /opt/vto
-./server.sh start    # 启动
-./server.sh stop     # 停止
-./server.sh restart  # 重启
-./server.sh status   # 状态
-\`\`\`
-
-### 系统监控
-\`\`\`bash
-./monitor.sh         # 启动监控（后台运行）
-./check_env.sh       # 检查环境
-\`\`\`
-
-### 数据备份
-\`\`\`bash
-./backup.sh          # 备份数据
-\`\`\`
-
-## 访问应用
-- 网址: http://路由器IP:8998
-- 默认账户: admin
-- 默认密码: 123456
-
-## 故障排除
-
-### 应用无法启动
-1. 检查Python环境: \`python3 --version\`
-2. 检查虚拟环境: \`ls -la venv/bin/\`
-3. 查看启动日志: \`cat logs/app.log\`
-
-### 端口被占用
-\`\`\`bash
-netstat -tlnp | grep 8998
-kill -9 <PID>
-\`\`\`
-
-### 权限问题
-\`\`\`bash
-chmod +x *.sh
-chmod -R 755 /opt/vto
-\`\`\`
-
-## 技术支持
-如遇问题，请提供：
-1. 路由器型号和固件版本
-2. 错误日志内容
-3. 系统环境信息（运行 check_env.sh）
-
-## 更新记录
-- v3.0: 完全离线安装支持，内置opkg核心文件
-- v2.0: 移除Docker依赖，使用本地Python环境构建
-- v1.0: 初始版本，基于Docker构建
-
-EOF
-
-    log_success "部署文档生成完成"
 }
 
 # 清理工作目录
-cleanup() {
-    log_info "清理工作目录..."
-    
-    if [ "$1" != "--keep-workspace" ]; then
+cleanup_workspace() {
+    if [ "$KEEP_WORKSPACE" != "true" ]; then
+        log_info "清理工作目录..."
         rm -rf "$WORK_DIR"
         log_success "工作目录清理完成"
     else
@@ -1180,79 +537,16 @@ cleanup() {
     fi
 }
 
-# 显示帮助信息
-show_help() {
-    echo
-    echo "VTO设备管理系统 - MIPS架构打包编译脚本（无Docker版本）"
-    echo
-    echo "用法:"
-    echo "  $0 [选项]"
-    echo
-    echo "选项:"
-    echo "  -h, --help              显示此帮助信息"
-    echo "  --keep-workspace        保留工作目录（用于调试）"
-    echo
-    echo "特性:"
-    echo "  ✓ 无需Docker环境"
-    echo "  ✓ 使用本地Python环境构建"
-    echo "  ✓ 支持多种Linux发行版"
-    echo "  ✓ 自动安装缺失依赖"
-    echo "  ✓ 生成优化的MIPS部署包"
-    echo "  ✓ 完全离线安装支持"
-    echo "  ✓ 内置opkg核心文件"
-    echo
-    echo "示例:"
-    echo "  # 普通构建"
-    echo "  $0"
-    echo
-    echo "  # 保留工作目录用于调试"
-    echo "  $0 --keep-workspace"
-    echo
-    echo "支持的系统:"
-    echo "  - Ubuntu/Debian (APT)"
-    echo "  - CentOS/RHEL/Rocky/AlmaLinux (YUM)"
-    echo "  - Fedora (DNF)"
-    echo "  - Arch Linux/Manjaro (Pacman)"
-    echo
-}
-
-# 显示完成信息
-show_completion() {
-    echo
-    log_success "=========================================="
-    log_success "MIPS部署包构建完成！"
-    log_success "=========================================="
-    echo
-    log_info "输出文件:"
-    log_info "  部署包: $OUTPUT_DIR/$PACKAGE_NAME"
-    log_info "  说明文档: $OUTPUT_DIR/deploy_instructions.md"
-    echo
-    log_info "构建特性:"
-    log_info "  ✓ 无Docker依赖"
-    log_info "  ✓ 预编译Python环境"
-    log_info "  ✓ 适配云效流水线"
-    log_info "  ✓ 内置MIPS架构opkg包"
-    log_info "  ✓ 完全离线安装支持"
-    log_info "  ✓ 内置opkg核心文件和配置"
-    echo
-    log_info "离线组件："
-    log_info "  ✓ opkg包管理器 + entware-opt"
-    log_info "  ✓ Python3环境 + pip3"
-    log_info "  ✓ SQLite3 + 网络工具"
-    log_info "  ✓ FFmpeg多媒体支持"
-    echo
-    log_info "下一步操作:"
-    log_info "1. 将部署包上传到OSS: https://oss-hk.hozoy.cn/vto-flask/$PACKAGE_NAME"
-    log_info "2. 测试自动安装流程"
-    log_info "3. 验证离线安装功能"
-    echo
-    log_warning "请确保在目标设备上测试部署包！"
-    echo
-}
-
 # 主函数
 main() {
+    echo
+    log_info "=========================================="
+    log_info "VTO设备管理系统 - MIPS架构离线打包脚本"
+    log_info "=========================================="
+    echo
+    
     # 处理命令行参数
+    KEEP_WORKSPACE=false
     while [[ $# -gt 0 ]]; do
         case $1 in
             -h|--help)
@@ -1260,56 +554,48 @@ main() {
                 exit 0
                 ;;
             --keep-workspace)
-                KEEP_WORKSPACE="true"
+                KEEP_WORKSPACE=true
                 shift
                 ;;
             *)
-                log_error "未知参数: $1"
-                log_info "使用 -h 或 --help 查看帮助信息"
+                log_error "未知选项: $1"
+                show_help
                 exit 1
                 ;;
         esac
     done
     
-    echo
-    log_info "=========================================="
-    log_info "VTO设备管理系统 - MIPS架构打包编译"
-    log_info "无Docker版本 - 完全离线安装支持"
-    log_info "=========================================="
-    echo
-    
-    # 显示环境变量状态
-    if [ "${KEEP_WORKSPACE:-}" = "true" ]; then
-        log_info "选项: --keep-workspace (保留工作目录)"
-        echo
+    # 检查必要工具
+    if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
+        error_exit "需要wget或curl命令来下载文件"
     fi
     
-    # 执行构建流程
-    check_dependencies
+    if ! command -v zip >/dev/null 2>&1; then
+        error_exit "需要zip命令来创建包文件"
+    fi
+    
+    if ! command -v unzip >/dev/null 2>&1; then
+        error_exit "需要unzip命令来验证zip文件"
+    fi
+    
+    # 执行打包流程
     setup_workspace
-    copy_source_code
     download_opkg_core
-    download_mips_packages
-    download_python_environment
-    optimize_scripts
-    create_configs
-    add_extra_tools
-    optimize_package
-    create_final_package
-    test_package
-    generate_deploy_docs
-    if [ "${KEEP_WORKSPACE:-}" = "true" ]; then
-        cleanup --keep-workspace
-    else
-        cleanup
-    fi
-    show_completion
+    download_ipk_packages
+    download_python_venv
+    create_install_scripts
+    copy_source_code
+    create_package
+    cleanup_workspace
     
-    log_success "构建流程全部完成！"
+    echo
+    log_success "=========================================="
+    log_success "离线部署包创建完成！"
+    log_success "=========================================="
+    log_info "输出文件: $OUTPUT_DIR/$PACKAGE_NAME"
+    log_info "使用方法: 将此文件上传到Padavan路由器，然后运行install_padavan.sh"
+    echo
 }
 
 # 脚本入口点
 main "$@"
-
-# 脚本入口点
-main "$@" 
