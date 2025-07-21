@@ -113,7 +113,9 @@ download_opkg_core() {
     
     # 下载entware-opt包
     log_info "下载entware-opt包..."
-    if wget --timeout=30 --tries=3 "$ENTWARE_REPO/installer/entware-opt.ipk" -O entware-opt.ipk 2>/dev/null; then
+    local ARCH="mipselsf-k3.4"
+    local ENTWARE_OPT_URL="http://bin.entware.net/${ARCH}/entware-opt_227000-3_all.ipk"
+    if wget --timeout=30 --tries=3 "$ENTWARE_OPT_URL" -O entware-opt.ipk 2>/dev/null; then
         log_success "✓ entware-opt包下载成功"
     else
         error_exit "entware-opt包下载失败"
@@ -122,10 +124,13 @@ download_opkg_core() {
     # 创建opkg配置文件
     cat > opkg.conf << 'EOF'
 src/gz entware http://bin.entware.net/mipselsf-k3.4
-dest root /
+dest root /opt
 dest ram /tmp
-lists_dir ext /var/lib/opkg
-option overlay_root /overlay
+lists_dir ext /opt/var/lib/opkg
+option overlay_root /opt
+arch all 100
+arch mipselsf-k3.4 200
+arch mipsel-3.4 300
 EOF
     
     log_success "opkg核心文件准备完成"
@@ -262,7 +267,7 @@ log_error() {
 log_info "开始安装opkg包管理器..."
 
 # 创建必要目录
-mkdir -p /opt/bin /opt/etc /opt/lib/opkg /opt/var/lock
+mkdir -p /opt/bin /opt/etc /opt/lib/opkg /opt/var/lock /opt/var/lib/opkg
 
 # 复制opkg二进制文件
 if cp opkg /opt/bin/ && chmod +x /opt/bin/opkg; then
@@ -283,7 +288,7 @@ fi
 # 安装entware-opt包
 if [ -f "entware-opt.ipk" ]; then
     log_info "安装entware-opt包..."
-    if /opt/bin/opkg install entware-opt.ipk --force-depends; then
+    if /opt/bin/opkg install entware-opt.ipk --force-depends --dest root; then
         log_success "entware-opt包安装成功"
     else
         log_info "entware-opt包安装失败，但继续进行"
@@ -328,7 +333,7 @@ install_package() {
     
     if [ -f "$pkg_file" ]; then
         log_info "安装: $pkg_file"
-        if opkg install "$pkg_file" --force-depends 2>/dev/null; then
+        if /opt/bin/opkg install "$pkg_file" --force-depends --dest root 2>/dev/null; then
             log_success "✓ $pkg_file 安装成功"
         else
             log_warning "✗ $pkg_file 安装失败"
