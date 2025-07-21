@@ -245,7 +245,8 @@ download_python_venv() {
 create_install_scripts() {
     log_info "创建安装脚本..."
     
-    cd "$WORK_DIR/package/install-scripts"
+    # 在opkg-core目录中创建opkg安装脚本
+    cd "$WORK_DIR/package/opkg-core"
     
     # 创建opkg安装脚本
     cat > install_opkg.sh << 'EOF'
@@ -310,7 +311,11 @@ chmod +x /opt/etc/profile.d/entware.sh
 log_success "opkg安装完成"
 EOF
 
+    # 设置opkg安装脚本的执行权限
+    chmod +x install_opkg.sh
+    
     # 创建IPK包安装脚本
+    cd "$WORK_DIR/package/install-scripts"
     cat > install_ipk_packages.sh << 'EOF'
 #!/bin/sh
 
@@ -404,6 +409,7 @@ log_success "IPK包安装完成"
 EOF
 
     # 创建应用部署脚本
+    cd "$WORK_DIR/package/install-scripts"
     cat > deploy_application.sh << 'EOF'
 #!/bin/sh
 
@@ -466,7 +472,7 @@ chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
 log_success "应用程序部署完成"
 EOF
 
-    # 设置执行权限
+    # 设置install-scripts中脚本的执行权限
     chmod +x *.sh
     
     log_success "安装脚本创建完成"
