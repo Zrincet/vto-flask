@@ -547,7 +547,7 @@ mkdir -p "$INSTALL_DIR/instance"
 log_info "在VTO目录创建Python虚拟环境..."
 cd "$INSTALL_DIR"
 
-# 优先使用virtualenv，因为它已经被安装
+# 使用virtualenv创建虚拟环境（已在前面安装）
 if virtualenv --version >/dev/null 2>&1; then
     log_info "使用virtualenv创建虚拟环境..."
     if virtualenv venv --python=python3; then
@@ -556,16 +556,8 @@ if virtualenv --version >/dev/null 2>&1; then
         log_error "virtualenv创建失败"
         exit 1
     fi
-elif python3 -c "import venv" >/dev/null 2>&1; then
-    log_info "使用python3 -m venv创建虚拟环境..."
-    if python3 -m venv venv; then
-        log_success "venv模块虚拟环境创建成功"
-    else
-        log_error "venv模块创建失败"
-        exit 1
-    fi
 else
-    log_error "无可用的虚拟环境创建工具，无法创建虚拟环境"
+    log_error "virtualenv工具不可用，无法创建虚拟环境"
     exit 1
 fi
 
