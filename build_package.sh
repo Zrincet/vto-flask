@@ -23,6 +23,9 @@ ENTWARE_REPO="http://bin.entware.net/mipselsf-k3.4"
 # 预编译Python环境下载地址
 VENV_URL="https://oss-hk.hozoy.cn/vto-flask/venv.zip"
 
+# virtualenv whl文件下载地址
+VIRTUALENV_WHL_URL="https://files.pythonhosted.org/packages/5c/c6/f8f28009920a736d0df434b52e9feebfb4d702ba942f15338cb4a83eafc1/virtualenv-20.32.0-py3-none-any.whl"
+
 # 日志函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -200,6 +203,8 @@ download_ipk_packages() {
         "libuuid_2.41-1_mipsel-3.4.ipk"
         "python3-uuid_3.11.10-1_mipsel-3.4.ipk"
         "python3-xml_3.11.10-1_mipsel-3.4.ipk"
+        # Python3 pip 包管理器
+        "python3-pip_23.3.1-1_mipsel-3.4.ipk"
         # FFmpeg 及其依赖
         "ffmpeg_6.1.2-3_mipsel-3.4.ipk"
         "alsa-lib_1.2.11-1_mipsel-3.4.ipk"
@@ -240,11 +245,12 @@ download_python_venv() {
     
     cd "$WORK_DIR/package"
     
+    # 下载预编译的venv环境
     if wget --timeout=60 --tries=3 "$VENV_URL" -O venv.zip 2>/dev/null; then
         log_success "✓ Python虚拟环境下载成功"
         
-        # 解压验证
-        if unzip -t venv.zip >/dev/null 2>&1; then
+        # 解压验证（BusyBox兼容）
+        if unzip -l venv.zip >/dev/null 2>&1; then
             log_success "✓ venv.zip 文件完整性验证通过"
         else
             error_exit "venv.zip 文件损坏"
@@ -255,6 +261,19 @@ download_python_venv() {
             log_success "✓ Python虚拟环境下载成功"
         else
             error_exit "Python虚拟环境下载失败"
+        fi
+    fi
+    
+    # 下载virtualenv whl文件
+    log_info "下载virtualenv工具..."
+    if wget --timeout=30 --tries=3 "$VIRTUALENV_WHL_URL" -O virtualenv-20.32.0-py3-none-any.whl 2>/dev/null; then
+        log_success "✓ virtualenv工具下载成功"
+    else
+        log_warning "✗ virtualenv工具下载失败，尝试使用curl..."
+        if curl -L -o virtualenv-20.32.0-py3-none-any.whl "$VIRTUALENV_WHL_URL" --connect-timeout 30 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ virtualenv工具下载成功"
+        else
+            error_exit "virtualenv工具下载失败"
         fi
     fi
 }
@@ -454,6 +473,9 @@ install_package "python3-sqlite3_*.ipk"
 install_package "python3-unittest_*.ipk"
 install_package "python3_*.ipk"
 
+# 安装pip包管理器（在Python3之后）
+install_package "python3-pip_*.ipk"
+
 # FFmpeg依赖
 install_package "libgmp_*.ipk"
 install_package "libnettle_*.ipk"
@@ -516,17 +538,119 @@ cp -r utils "$INSTALL_DIR/" 2>/dev/null || true
 cp requirements.txt "$INSTALL_DIR/" 2>/dev/null || true
 cp *.sh "$INSTALL_DIR/" 2>/dev/null || true
 
-# 解压并复制Python虚拟环境
-if [ -f "venv.zip" ]; then
-    log_info "解压Python虚拟环境..."
-    unzip -q venv.zip -d "$INSTALL_DIR/"
-    log_success "Python虚拟环境部署完成"
-fi
-
 # 创建必要目录
 mkdir -p "$INSTALL_DIR/logs"
 mkdir -p "$INSTALL_DIR/db"
 mkdir -p "$INSTALL_DIR/instance"
+
+# 在VTO目录中创建虚拟环境
+log_info "在VTO目录创建Python虚拟环境..."
+cd "$INSTALL_DIR"
+
+# 检查virtualenv是否可用
+if virtualenv --version >/dev/null 2>&1; then
+    log_info "使用virtualenv创建虚拟环境..."
+    if virtualenv venv; then
+        log_success "virtualenv虚拟环境创建成功"
+    else
+        log_warning "virtualenv创建失败，尝试使用venv模块"
+        if python3 -m venv venv; then
+            log_success "venv模块虚拟环境创建成功"
+        else
+            log_error "虚拟环境创建失败"
+            exit 1
+        fi
+    fi
+else
+    log_info "使用python3 -m venv创建虚拟环境..."
+    if python3 -m venv venv; then
+        log_success "venv模块虚拟环境创建成功"
+    else
+        log_error "虚拟环境创建失败"
+        exit 1
+    fi
+fi
+
+# 解压预编译包并迁移到新环境
+if [ -f "../venv.zip" ]; then
+    log_info "解压预编译Python包..."
+    cd ..
+    if unzip -q venv.zip; then
+        log_success "预编译包解压完成"
+        
+        # 检查源包目录
+        if [ -d "venv/lib/python3.10/site-packages" ]; then
+            SOURCE_PACKAGES="venv/lib/python3.10/site-packages"
+        elif [ -d "venv/lib/python3.11/site-packages" ]; then
+            SOURCE_PACKAGES="venv/lib/python3.11/site-packages"
+        else
+            log_warning "未找到预编译包目录，跳过包迁移"
+            rm -rf venv
+            cd "$INSTALL_DIR"
+            SOURCE_PACKAGES=""
+        fi
+        
+        if [ -n "$SOURCE_PACKAGES" ]; then
+            # 检查目标包目录
+            TARGET_PACKAGES="$INSTALL_DIR/venv/lib/python3.11/site-packages"
+            if [ ! -d "$TARGET_PACKAGES" ]; then
+                # 尝试查找实际的site-packages目录
+                TARGET_PACKAGES=$(find "$INSTALL_DIR/venv/lib" -name "site-packages" -type d | head -1)
+            fi
+            
+            if [ -d "$TARGET_PACKAGES" ]; then
+                log_info "迁移预编译包到新虚拟环境..."
+                # 复制所有包到新环境（跳过已存在的基础包）
+                cd "$SOURCE_PACKAGES"
+                for pkg in *; do
+                    if [ "$pkg" != "pip*" ] && [ "$pkg" != "setuptools*" ] && [ "$pkg" != "wheel*" ]; then
+                        if [ ! -e "$TARGET_PACKAGES/$pkg" ]; then
+                            cp -r "$pkg" "$TARGET_PACKAGES/" 2>/dev/null || true
+                        fi
+                    fi
+                done
+                log_success "预编译包迁移完成"
+            else
+                log_warning "未找到目标site-packages目录"
+            fi
+            
+            # 清理临时解压的venv
+            cd ..
+            rm -rf venv
+        fi
+        
+        cd "$INSTALL_DIR"
+    else
+        log_warning "预编译包解压失败"
+    fi
+else
+    log_info "未找到预编译包，将使用requirements.txt安装依赖"
+fi
+
+# 激活虚拟环境并安装缺失的依赖
+if [ -f "requirements.txt" ]; then
+    log_info "检查并安装Python依赖..."
+    
+    # 激活虚拟环境
+    . venv/bin/activate
+    
+    # 升级pip
+    if pip install --upgrade pip >/dev/null 2>&1; then
+        log_success "pip 升级成功"
+    else
+        log_warning "pip 升级失败，继续安装"
+    fi
+    
+    # 安装requirements.txt中的依赖（跳过已存在的）
+    if pip install -r requirements.txt --no-cache-dir; then
+        log_success "Python依赖检查和安装完成"
+    else
+        log_warning "部分Python依赖安装失败，可能影响功能"
+    fi
+    
+    # 停用虚拟环境
+    deactivate
+fi
 
 # 设置执行权限
 chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
