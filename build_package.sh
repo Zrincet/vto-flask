@@ -124,7 +124,7 @@ download_opkg_core() {
     # 创建opkg配置文件
     cat > opkg.conf << 'EOF'
 src/gz entware http://bin.entware.net/mipselsf-k3.4
-dest root /opt
+dest root /
 dest ram /tmp
 lists_dir ext /opt/var/lib/opkg
 option overlay_root /opt
@@ -144,6 +144,24 @@ download_ipk_packages() {
     
     # 定义需要下载的包列表
     local packages=(
+        # Entware基础依赖包（按安装顺序）
+        "libgcc_8.4.0-11_mipsel-3.4.ipk"
+        "libc_2.27-11_mipsel-3.4.ipk"
+        "libssp_8.4.0-11_mipsel-3.4.ipk"
+        "libpthread_2.27-11_mipsel-3.4.ipk"
+        "librt_2.27-11_mipsel-3.4.ipk"
+        "libstdcpp_8.4.0-11_mipsel-3.4.ipk"
+        "entware-release_2025.05-1_all.ipk"
+        "zoneinfo-core_2025b-1_mipsel-3.4.ipk"
+        "zoneinfo-asia_2025b-1_mipsel-3.4.ipk"
+        "zoneinfo-europe_2025b-1_mipsel-3.4.ipk"
+        "findutils_4.10.0-1_mipsel-3.4.ipk"
+        "terminfo_6.4-3_mipsel-3.4.ipk"
+        "libpcre2_10.42-1_mipsel-3.4.ipk"
+        "grep_3.11-2_mipsel-3.4.ipk"
+        "locales_2.27-9_mipsel-3.4.ipk"
+        "opkg_2024.10.16~38eccbb1-1_mipsel-3.4.ipk"
+        "entware-upgrade_1.0-1_all.ipk"
         # Python3 环境及其依赖
         "python3_3.11.10-1_mipsel-3.4.ipk"
         "libpython3_3.11.10-1_mipsel-3.4.ipk"
@@ -286,14 +304,56 @@ else
     exit 1
 fi
 
-# 安装entware-opt包
+# 安装entware-opt包及其依赖
 if [ -f "entware-opt.ipk" ]; then
-    log_info "安装entware-opt包..."
+    log_info "安装entware依赖包..."
+    
+    # 先切换到ipk-packages目录安装依赖
+    cd ../ipk-packages
+    
+    # 按顺序安装entware依赖
+    install_entware_dep() {
+        local pkg_pattern="$1"
+        local pkg_file=$(ls $pkg_pattern 2>/dev/null | head -1)
+        
+        if [ -f "$pkg_file" ]; then
+            log_info "安装entware依赖: $pkg_file"
+            if /opt/bin/opkg install "$pkg_file" --force-depends --dest root 2>/dev/null; then
+                log_success "✓ $pkg_file 安装成功"
+            else
+                log_info "✗ $pkg_file 安装失败，继续进行"
+            fi
+        fi
+    }
+    
+    # 按entware官方安装顺序安装依赖
+    install_entware_dep "libgcc_*.ipk"
+    install_entware_dep "libc_*.ipk"
+    install_entware_dep "libssp_*.ipk"
+    install_entware_dep "libpthread_*.ipk"
+    install_entware_dep "librt_*.ipk"
+    install_entware_dep "libstdcpp_*.ipk"
+    install_entware_dep "entware-release_*.ipk"
+    install_entware_dep "zoneinfo-core_*.ipk"
+    install_entware_dep "zoneinfo-asia_*.ipk"
+    install_entware_dep "zoneinfo-europe_*.ipk"
+    install_entware_dep "findutils_*.ipk"
+    install_entware_dep "terminfo_*.ipk"
+    install_entware_dep "libpcre2_*.ipk"
+    install_entware_dep "grep_*.ipk"
+    install_entware_dep "locales_*.ipk"
+    install_entware_dep "opkg_*.ipk"
+    install_entware_dep "entware-upgrade_*.ipk"
+    
+    # 回到opkg-core目录安装entware-opt主包
+    cd ../opkg-core
     if /opt/bin/opkg install entware-opt.ipk --force-depends --dest root; then
         log_success "entware-opt包安装成功"
     else
         log_info "entware-opt包安装失败，但继续进行"
     fi
+else
+    log_info "未找到entware-opt.ipk，跳过安装"
 fi
 
 # 更新PATH环境变量
@@ -352,6 +412,8 @@ log_info "开始安装IPK依赖包..."
 
 # 更新PATH环境变量
 export PATH="/opt/bin:/opt/sbin:$PATH"
+
+# 注意：entware基础依赖包已在opkg安装阶段完成，这里安装应用相关的包
 
 # 按依赖顺序安装包
 install_package "zlib_*.ipk"
