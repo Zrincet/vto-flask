@@ -508,10 +508,10 @@ copy_source_code() {
 create_package() {
     log_info "创建部署包..."
     
-    cd "$WORK_DIR"
+    cd "$WORK_DIR/package"
     
-    # 创建zip包
-    if zip -r "$OUTPUT_DIR/$PACKAGE_NAME" package/ >/dev/null 2>&1; then
+    # 直接压缩package目录下的内容，而不是package目录本身
+    if zip -r "$OUTPUT_DIR/$PACKAGE_NAME" . >/dev/null 2>&1; then
         log_success "部署包创建成功: $OUTPUT_DIR/$PACKAGE_NAME"
         
         # 显示包大小
