@@ -543,7 +543,10 @@ log_warning() {
 }
 
 install_package() {
-    local pkg_file="$1"
+    local pkg_pattern="$1"
+    
+    # 查找匹配的包文件
+    local pkg_file=$(ls $pkg_pattern 2>/dev/null | head -1)
     
     if [ -f "$pkg_file" ]; then
         log_info "安装: $pkg_file"
@@ -553,7 +556,7 @@ install_package() {
             log_warning "✗ $pkg_file 安装失败"
         fi
     else
-        log_warning "✗ 包文件不存在: $pkg_file"
+        log_warning "✗ 包文件不存在: $pkg_pattern"
     fi
 }
 
