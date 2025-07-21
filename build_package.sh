@@ -17,24 +17,23 @@ SOURCE_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/dist"
 PACKAGE_NAME="vto-mips-package.zip"
 
-# MIPS包下载配置
-OPENWRT_REPO="https://downloads.openwrt.org/releases/22.03.5/packages/mipsel_24kc"
-PADAVAN_REPO="https://opt.cn2qq.com/padavan-opt/opt-pkg"
+# MIPS包下载配置 - 使用官方entware仓库
+ENTWARE_REPO="http://bin.entware.net/mipselsf-k3.4"
 
-# 必需的MIPS包列表
+# 必需的MIPS包列表 - 基于官方entware仓库
 REQUIRED_PACKAGES=(
     "python3"
-    "python3-pip" 
-    "python3-dev"
-    "python3-setuptools"
-    "python3-wheel"
-    "sqlite3-cli"
+    "libpython3"
+    "python3-base"
+    "python3-light"
+    "python3-sqlite3"
     "libsqlite3"
     "ffmpeg"
-    "curl"
-    "wget"
-    "unzip"
-    "openssl-util"
+    "libffmpeg-full"
+    "zlib"
+    "libffi"
+    "libopenssl"
+    "ca-certificates"
 )
 
 # 日志函数
@@ -435,70 +434,83 @@ download_mips_packages() {
     mkdir -p "$WORK_DIR/package/opkg-packages"
     cd "$WORK_DIR/package/opkg-packages"
     
-    # 创建包索引文件
+    # 创建包索引文件 - 基于官方entware仓库
     cat > package_list.txt << 'EOF'
-# MIPS架构包列表 - 适用于Padavan/OpenWrt
-# 格式: 包名|下载URL|文件名
-# 基础系统库
-zlib|packages|zlib_1.2.13-1_mipsel_24kc.ipk
-libffi|packages|libffi_3.4.4-1_mipsel_24kc.ipk
-openssl-util|packages|openssl-util_3.0.8-1_mipsel_24kc.ipk
-libssl3|packages|libssl3_3.0.8-1_mipsel_24kc.ipk
-libcrypto3|packages|libcrypto3_3.0.8-1_mipsel_24kc.ipk
-# SQLite
-libsqlite3-0|packages|libsqlite3-0_3.41.2-1_mipsel_24kc.ipk
-sqlite3-cli|packages|sqlite3-cli_3.41.2-1_mipsel_24kc.ipk
-# Python环境
-python3|packages|python3_3.10.13-2_mipsel_24kc.ipk
-python3-pip|packages|python3-pip_23.0.1-1_mipsel_24kc.ipk
-python3-dev|packages|python3-dev_3.10.13-2_mipsel_24kc.ipk
-python3-setuptools|packages|python3-setuptools_65.5.0-1_mipsel_24kc.ipk
-python3-wheel|packages|python3-wheel_0.40.0-1_mipsel_24kc.ipk
-# 网络工具
-curl|packages|curl_8.6.0-1_mipsel_24kc.ipk
-wget-ssl|packages|wget-ssl_1.21.4-1_mipsel_24kc.ipk
-unzip|packages|unzip_6.0-8_mipsel_24kc.ipk
-# 多媒体
-ffmpeg|packages|ffmpeg_5.1.3-1_mipsel_24kc.ipk
+# MIPS架构包列表 - 基于官方entware仓库(mipselsf-k3.4)
+# 格式: 包名|完整下载URL
+# Python3 环境及其依赖
+python3|http://bin.entware.net/mipselsf-k3.4/python3_3.11.10-1_mipsel-3.4.ipk
+libpython3|http://bin.entware.net/mipselsf-k3.4/libpython3_3.11.10-1_mipsel-3.4.ipk
+python3-base|http://bin.entware.net/mipselsf-k3.4/python3-base_3.11.10-1_mipsel-3.4.ipk
+libbz2|http://bin.entware.net/mipselsf-k3.4/libbz2_1.0.8-1a_mipsel-3.4.ipk
+zlib|http://bin.entware.net/mipselsf-k3.4/zlib_1.3.1-1_mipsel-3.4.ipk
+python3-light|http://bin.entware.net/mipselsf-k3.4/python3-light_3.11.10-1_mipsel-3.4.ipk
+python3-asyncio|http://bin.entware.net/mipselsf-k3.4/python3-asyncio_3.11.10-1_mipsel-3.4.ipk
+python3-email|http://bin.entware.net/mipselsf-k3.4/python3-email_3.11.10-1_mipsel-3.4.ipk
+python3-cgi|http://bin.entware.net/mipselsf-k3.4/python3-cgi_3.11.10-1_mipsel-3.4.ipk
+python3-pydoc|http://bin.entware.net/mipselsf-k3.4/python3-pydoc_3.11.10-1_mipsel-3.4.ipk
+python3-cgitb|http://bin.entware.net/mipselsf-k3.4/python3-cgitb_3.11.10-1_mipsel-3.4.ipk
+python3-codecs|http://bin.entware.net/mipselsf-k3.4/python3-codecs_3.11.10-1_mipsel-3.4.ipk
+libffi|http://bin.entware.net/mipselsf-k3.4/libffi_3.4.7-1_mipsel-3.4.ipk
+python3-ctypes|http://bin.entware.net/mipselsf-k3.4/python3-ctypes_3.11.10-1_mipsel-3.4.ipk
+libgdbm|http://bin.entware.net/mipselsf-k3.4/libgdbm_1.23-1_mipsel-3.4.ipk
+python3-dbm|http://bin.entware.net/mipselsf-k3.4/python3-dbm_3.11.10-1_mipsel-3.4.ipk
+python3-decimal|http://bin.entware.net/mipselsf-k3.4/python3-decimal_3.11.10-1_mipsel-3.4.ipk
+python3-distutils|http://bin.entware.net/mipselsf-k3.4/python3-distutils_3.11.10-1_mipsel-3.4.ipk
+python3-logging|http://bin.entware.net/mipselsf-k3.4/python3-logging_3.11.10-1_mipsel-3.4.ipk
+liblzma|http://bin.entware.net/mipselsf-k3.4/liblzma_5.6.2-2_mipsel-3.4.ipk
+python3-lzma|http://bin.entware.net/mipselsf-k3.4/python3-lzma_3.11.10-1_mipsel-3.4.ipk
+python3-multiprocessing|http://bin.entware.net/mipselsf-k3.4/python3-multiprocessing_3.11.10-1_mipsel-3.4.ipk
+libncursesw|http://bin.entware.net/mipselsf-k3.4/libncursesw_6.4-3_mipsel-3.4.ipk
+python3-ncurses|http://bin.entware.net/mipselsf-k3.4/python3-ncurses_3.11.10-1_mipsel-3.4.ipk
+libatomic|http://bin.entware.net/mipselsf-k3.4/libatomic_8.4.0-11_mipsel-3.4.ipk
+libopenssl|http://bin.entware.net/mipselsf-k3.4/libopenssl_3.5.0-1_mipsel-3.4.ipk
+ca-certificates|http://bin.entware.net/mipselsf-k3.4/ca-certificates_20241223-1_all.ipk
+python3-openssl|http://bin.entware.net/mipselsf-k3.4/python3-openssl_3.11.10-1_mipsel-3.4.ipk
+libreadline|http://bin.entware.net/mipselsf-k3.4/libreadline_8.2-2_mipsel-3.4.ipk
+python3-readline|http://bin.entware.net/mipselsf-k3.4/python3-readline_3.11.10-1_mipsel-3.4.ipk
+libsqlite3|http://bin.entware.net/mipselsf-k3.4/libsqlite3_3.49.1-2_mipsel-3.4.ipk
+python3-sqlite3|http://bin.entware.net/mipselsf-k3.4/python3-sqlite3_3.11.10-1_mipsel-3.4.ipk
+python3-unittest|http://bin.entware.net/mipselsf-k3.4/python3-unittest_3.11.10-1_mipsel-3.4.ipk
+python3-urllib|http://bin.entware.net/mipselsf-k3.4/python3-urllib_3.11.10-1_mipsel-3.4.ipk
+libuuid|http://bin.entware.net/mipselsf-k3.4/libuuid_2.41-1_mipsel-3.4.ipk
+python3-uuid|http://bin.entware.net/mipselsf-k3.4/python3-uuid_3.11.10-1_mipsel-3.4.ipk
+python3-xml|http://bin.entware.net/mipselsf-k3.4/python3-xml_3.11.10-1_mipsel-3.4.ipk
+# FFmpeg 及其依赖
+ffmpeg|http://bin.entware.net/mipselsf-k3.4/ffmpeg_6.1.2-3_mipsel-3.4.ipk
+alsa-lib|http://bin.entware.net/mipselsf-k3.4/alsa-lib_1.2.11-1_mipsel-3.4.ipk
+libgmp|http://bin.entware.net/mipselsf-k3.4/libgmp_6.3.0-1_mipsel-3.4.ipk
+libnettle|http://bin.entware.net/mipselsf-k3.4/libnettle_3.10.1-1_mipsel-3.4.ipk
+libgnutls|http://bin.entware.net/mipselsf-k3.4/libgnutls_3.8.9-1_mipsel-3.4.ipk
+libopus|http://bin.entware.net/mipselsf-k3.4/libopus_1.5.2-1_mipsel-3.4.ipk
+libiconv-full|http://bin.entware.net/mipselsf-k3.4/libiconv-full_1.18-1_mipsel-3.4.ipk
+libv4l|http://bin.entware.net/mipselsf-k3.4/libv4l_1.28.0-1_mipsel-3.4.ipk
+shine|http://bin.entware.net/mipselsf-k3.4/shine_3.1.1-1_mipsel-3.4.ipk
+libx264|http://bin.entware.net/mipselsf-k3.4/libx264_2024.05.13~4613ac3c-1_mipsel-3.4.ipk
+libffmpeg-full|http://bin.entware.net/mipselsf-k3.4/libffmpeg-full_6.1.2-3_mipsel-3.4.ipk
 EOF
 
     # 下载包函数
     download_package() {
         local pkg_name="$1"
-        local repo_path="$2" 
-        local filename="$3"
-        
-        local base_url="$OPENWRT_REPO"
-        
-        # 根据仓库路径构建完整URL
-        case "$repo_path" in
-            "base")
-                local url="$base_url/base/$filename"
-                ;;
-            "packages")
-                local url="$base_url/packages/$filename"
-                ;;
-            *)
-                local url="$base_url/$repo_path/$filename"
-                ;;
-        esac
+        local download_url="$2"
+        local filename=$(basename "$download_url")
         
         log_info "下载 $pkg_name: $filename"
         
         # 尝试下载
-        if wget -q --timeout=30 --tries=3 "$url" -O "$filename" 2>/dev/null; then
+        if wget -q --timeout=30 --tries=3 "$download_url" -O "$filename" 2>/dev/null; then
             log_success "✓ $pkg_name 下载成功"
             return 0
         else
-            log_warning "✗ $pkg_name 下载失败，尝试备用源..."
+            log_warning "✗ $pkg_name 下载失败，尝试使用curl..."
             
-            # 尝试备用源
-            local backup_url="$PADAVAN_REPO/$filename"
-            if wget -q --timeout=30 --tries=2 "$backup_url" -O "$filename" 2>/dev/null; then
-                log_success "✓ $pkg_name 从备用源下载成功"
+            # 尝试curl
+            if curl -L -o "$filename" "$download_url" --connect-timeout 30 --max-time 300 --retry 2 --insecure 2>/dev/null; then
+                log_success "✓ $pkg_name 通过curl下载成功"
                 return 0
             else
-                log_warning "✗ $pkg_name 从所有源下载失败"
+                log_warning "✗ $pkg_name 下载失败"
                 return 1
             fi
         fi
@@ -508,7 +520,7 @@ EOF
     local success_count=0
     local total_count=0
     
-    while IFS='|' read -r pkg_name repo_path filename || [ -n "$pkg_name" ]; do
+    while IFS='|' read -r pkg_name download_url || [ -n "$pkg_name" ]; do
         # 跳过注释行和空行
         if [[ "$pkg_name" =~ ^#.*$ ]] || [ -z "$pkg_name" ]; then
             continue
@@ -516,7 +528,7 @@ EOF
         
         total_count=$((total_count + 1))
         
-        if download_package "$pkg_name" "$repo_path" "$filename"; then
+        if download_package "$pkg_name" "$download_url"; then
             success_count=$((success_count + 1))
         fi
     done < package_list.txt
@@ -527,7 +539,7 @@ EOF
     cat > install_packages.sh << 'EOF'
 #!/bin/sh
 
-# MIPS包安装脚本
+# MIPS包安装脚本 - 基于官方entware包
 # 在目标设备上运行此脚本来安装所有依赖包
 
 log_info() {
@@ -560,36 +572,77 @@ install_package() {
     fi
 }
 
-# 安装顺序很重要，先安装基础库
-log_info "开始安装MIPS依赖包..."
+# 安装顺序很重要，按照依赖关系排序
+log_info "开始安装官方entware依赖包..."
 
 # 基础系统库（按依赖关系排序）
 install_package "zlib_*.ipk"
+install_package "libbz2_*.ipk"
 install_package "libffi_*.ipk"
-install_package "libssl3_*.ipk"
-install_package "libcrypto3_*.ipk"
-install_package "openssl-util_*.ipk"
+install_package "libatomic_*.ipk"
+install_package "liblzma_*.ipk"
+install_package "libncursesw_*.ipk"
+install_package "libreadline_*.ipk"
+install_package "libgdbm_*.ipk"
+install_package "libuuid_*.ipk"
+
+# SSL/TLS支持
+install_package "libopenssl_*.ipk"
+install_package "ca-certificates_*.ipk"
 
 # SQLite
-install_package "libsqlite3-0_*.ipk"
-install_package "sqlite3-cli_*.ipk"
+install_package "libsqlite3_*.ipk"
 
-# 网络工具
-install_package "curl_*.ipk"
-install_package "wget-ssl_*.ipk"
-install_package "unzip_*.ipk"
+# Python基础环境（按依赖关系排序）
+install_package "libpython3_*.ipk"
+install_package "python3-base_*.ipk"
+install_package "python3-light_*.ipk"
 
-# Python环境（按依赖关系排序）
+# Python核心模块
+install_package "python3-codecs_*.ipk"
+install_package "python3-email_*.ipk"
+install_package "python3-urllib_*.ipk"
+install_package "python3-xml_*.ipk"
+install_package "python3-uuid_*.ipk"
+install_package "python3-logging_*.ipk"
+install_package "python3-decimal_*.ipk"
+install_package "python3-distutils_*.ipk"
+install_package "python3-multiprocessing_*.ipk"
+
+# Python扩展模块
+install_package "python3-asyncio_*.ipk"
+install_package "python3-cgi_*.ipk"
+install_package "python3-cgitb_*.ipk"
+install_package "python3-pydoc_*.ipk"
+install_package "python3-ctypes_*.ipk"
+install_package "python3-dbm_*.ipk"
+install_package "python3-lzma_*.ipk"
+install_package "python3-ncurses_*.ipk"
+install_package "python3-openssl_*.ipk"
+install_package "python3-readline_*.ipk"
+install_package "python3-sqlite3_*.ipk"
+install_package "python3-unittest_*.ipk"
+
+# Python主包
 install_package "python3_*.ipk"
-install_package "python3-setuptools_*.ipk"
-install_package "python3-wheel_*.ipk"
-install_package "python3-pip_*.ipk"
-install_package "python3-dev_*.ipk"
 
-# 多媒体支持
+# FFmpeg多媒体支持依赖
+install_package "libgmp_*.ipk"
+install_package "libnettle_*.ipk"
+install_package "libgnutls_*.ipk"
+install_package "libopus_*.ipk"
+install_package "libiconv-full_*.ipk"
+install_package "libv4l_*.ipk"
+install_package "shine_*.ipk"
+install_package "libx264_*.ipk"
+install_package "alsa-lib_*.ipk"
+
+# FFmpeg多媒体库和主程序
+install_package "libffmpeg-full_*.ipk"
 install_package "ffmpeg_*.ipk"
 
-log_success "MIPS依赖包安装完成！"
+log_success "官方entware依赖包安装完成！"
+log_info "已安装Python 3.11.10和FFmpeg 6.1.2及其所有依赖"
 EOF
 
     chmod +x install_packages.sh
