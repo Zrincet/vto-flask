@@ -626,75 +626,74 @@ copy_source_code() {
     log_success "源代码复制完成"
 }
 
-# 构建Python虚拟环境
-build_python_environment() {
-    log_info "构建Python虚拟环境..."
+# 下载预编译的Python虚拟环境
+download_python_environment() {
+    log_info "下载预编译的Python虚拟环境..."
     
-    # 在工作目录创建虚拟环境
+    # 创建临时下载目录
     cd "$WORK_DIR"
+    mkdir -p temp-venv
+    cd temp-venv
     
-    # 创建虚拟环境
-    if python3 -m venv venv-build; then
-        log_success "虚拟环境创建成功"
+    # 下载venv.zip
+    local VENV_URL="https://oss-hk.hozoy.cn/vto-flask/venv.zip"
+    log_info "下载地址: $VENV_URL"
+    
+    if wget --timeout=60 --tries=3 "$VENV_URL" -O venv.zip 2>/dev/null; then
+        log_success "✓ venv.zip下载成功"
     else
-        error_exit "虚拟环境创建失败"
+        log_warning "✗ venv.zip下载失败，尝试使用curl..."
+        if curl -L -o venv.zip "$VENV_URL" --connect-timeout 60 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ venv.zip下载成功"
+        else
+            error_exit "预编译虚拟环境下载失败，请检查网络连接"
+        fi
     fi
     
-    # 激活虚拟环境
-    source venv-build/bin/activate
-    
-    # 升级pip
-    log_info "升级pip..."
-    pip install --upgrade pip >/dev/null 2>&1
-    
-    # 读取requirements.txt并安装依赖
-    log_info "安装Python依赖包..."
-    
-    # 创建优化的requirements.txt，使用稳定版本
-    cat > requirements-build.txt << 'EOF'
-Flask==2.3.3
-Flask-SQLAlchemy==3.0.5
-Flask-SocketIO==5.3.4
-Werkzeug==2.3.7
-requests==2.31.0
-paho-mqtt==1.6.1
-Jinja2==3.1.2
-MarkupSafe==2.1.3
-itsdangerous==2.1.2
-click==8.1.7
-blinker==1.6.3
-SQLAlchemy==2.0.21
-python-socketio==5.8.0
-python-engineio==4.7.1
-bidict==0.22.1
-urllib3==2.0.4
-charset-normalizer==3.2.0
-idna==3.4
-certifi==2023.7.22
-greenlet==2.0.2
-typing-extensions==4.7.1
-EOF
-
-    # 安装依赖
-    if pip install -r requirements-build.txt --no-cache-dir; then
-        log_success "Python依赖安装完成"
-    else
-        log_warning "部分依赖安装失败，继续处理"
+    # 检查文件完整性
+    if [ ! -f "venv.zip" ] || [ ! -s "venv.zip" ]; then
+        error_exit "下载的venv.zip文件损坏或为空"
     fi
     
-    # 停用虚拟环境
-    deactivate
+    # 显示下载文件信息
+    local VENV_SIZE=$(ls -lh venv.zip | awk '{print $5}')
+    log_info "虚拟环境包大小: $VENV_SIZE"
+    
+    # 解压venv.zip
+    log_info "解压Python虚拟环境..."
+    if unzip -q venv.zip; then
+        log_success "虚拟环境解压完成"
+    else
+        error_exit "虚拟环境解压失败"
+    fi
+    
+    # 检查解压后的venv目录
+    if [ ! -d "venv" ]; then
+        error_exit "解压后未找到venv目录"
+    fi
     
     # 复制虚拟环境到打包目录
-    cp -r venv-build "$WORK_DIR/package/venv"
+    cp -r venv "$WORK_DIR/package/"
+    
+    # 清理临时目录
+    cd "$WORK_DIR"
+    rm -rf temp-venv
     
     # 清理虚拟环境中的无用文件
     log_info "清理虚拟环境..."
-    find "$WORK_DIR/package/venv" -name "*.pyc" -delete
+    find "$WORK_DIR/package/venv" -name "*.pyc" -delete 2>/dev/null || true
     find "$WORK_DIR/package/venv" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    find "$WORK_DIR/package/venv" -name "*.pyo" -delete
+    find "$WORK_DIR/package/venv" -name "*.pyo" -delete 2>/dev/null || true
     
-    log_success "Python环境构建完成"
+    # 验证虚拟环境
+    if [ -f "$WORK_DIR/package/venv/bin/python" ]; then
+        log_success "虚拟环境验证成功"
+        log_info "Python路径: $WORK_DIR/package/venv/bin/python"
+    else
+        log_warning "虚拟环境验证失败，缺少python解释器"
+    fi
+    
+    log_success "Python环境下载完成"
 }
 
 # 优化启动脚本
@@ -958,7 +957,7 @@ generate_deploy_docs() {
 - 构建时间: $(date)
 - 适用架构: MIPS (Padavan)
 - 大小: $(ls -lh "$OUTPUT_DIR/$PACKAGE_NAME" | awk '{print $5}')
-- 构建方式: 本地Python环境构建
+- 构建方式: 预编译Python环境
 - 内置组件: 完全离线安装支持
 
 ## 系统要求
@@ -1177,7 +1176,7 @@ show_completion() {
     echo
     log_info "构建特性:"
     log_info "  ✓ 无Docker依赖"
-    log_info "  ✓ 本地Python环境构建"
+    log_info "  ✓ 预编译Python环境"
     log_info "  ✓ 适配云效流水线"
     log_info "  ✓ 内置MIPS架构opkg包"
     log_info "  ✓ 完全离线安装支持"
@@ -1238,7 +1237,7 @@ main() {
     copy_source_code
     download_opkg_core
     download_mips_packages
-    build_python_environment
+    download_python_environment
     optimize_scripts
     create_configs
     add_extra_tools
