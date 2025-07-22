@@ -82,7 +82,7 @@
             </h5>
         </div>
         <div class="card-body">
-            <form method="POST" action="{{ url_for('save_settings') }}" class="settings-form">
+            <form method="POST" action="{{ url_for('settings.save_settings') }}" class="settings-form">
                 <div class="form-group">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <label class="form-label mb-0">MQTT服务状态</label>
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
         this.disabled = true;
         this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同步中...';
         
-        fetch('/sync_bemfa_devices', {
+        fetch('/settings/sync_bemfa_devices', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -638,9 +638,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            console.log('Sending request to /add_bemfa_key_api');
+            console.log('Sending request to /settings/add_bemfa_key_api');
             // 发送请求
-            fetch('/add_bemfa_key_api', {
+            fetch('/settings/add_bemfa_key_api', {
                 method: 'POST',
                 body: formData
             })
@@ -686,9 +686,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            console.log('Sending request to /edit_bemfa_key_api/' + keyId);
+            console.log('Sending request to /settings/edit_bemfa_key_api/' + keyId);
             // 发送请求
-            fetch(`/edit_bemfa_key_api/${keyId}`, {
+            fetch(`/settings/edit_bemfa_key_api/${keyId}`, {
                 method: 'POST',
                 body: formData
             })
@@ -786,7 +786,7 @@ function toggleKey(button) {
 // 编辑密钥
 function editKey(keyId) {
     console.log('editKey function called with keyId:', keyId);
-    fetch(`/get_bemfa_key_api/${keyId}`)
+    fetch(`/settings/get_bemfa_key_api/${keyId}`)
         .then(response => response.json())
         .then(data => {
             console.log('editKey response:', data);
@@ -813,7 +813,7 @@ function editKey(keyId) {
 // 切换密钥状态
 function toggleKeyStatus(keyId) {
     console.log('toggleKeyStatus function called with keyId:', keyId);
-    fetch(`/toggle_bemfa_key_api/${keyId}`, {
+    fetch(`/settings/toggle_bemfa_key_api/${keyId}`, {
         method: 'POST'
     })
     .then(response => response.json())
@@ -837,7 +837,7 @@ function deleteKey(keyId, keyName) {
     console.log('deleteKey function called with keyId:', keyId, 'keyName:', keyName);
     if (confirm(`确定要删除密钥 "${keyName}" 吗？此操作不可恢复。`)) {
         console.log('User confirmed deletion');
-        fetch(`/delete_bemfa_key_api/${keyId}`, {
+        fetch(`/settings/delete_bemfa_key_api/${keyId}`, {
             method: 'POST'
         })
         .then(response => response.json())

@@ -5,10 +5,16 @@
 {% block page_title %}设备管理{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('add_device') }}" class="btn btn-primary btn-sm">
-    <i class="fas fa-plus"></i>
-    <span class="d-none d-sm-inline">添加设备</span>
-</a>
+<div class="btn-group">
+    <a href="{{ url_for('device.import_devices') }}" class="btn btn-outline-info btn-sm">
+        <i class="fas fa-upload"></i>
+        <span class="d-none d-sm-inline">批量导入</span>
+    </a>
+    <a href="{{ url_for('device.add_device') }}" class="btn btn-primary btn-sm">
+        <i class="fas fa-plus"></i>
+        <span class="d-none d-sm-inline">添加设备</span>
+    </a>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -120,7 +126,7 @@
                                     <button class="btn btn-outline-success unlock-btn" data-device-id="{{ device.id }}" title="开锁">
                                         <i class="fas fa-unlock"></i>
                                     </button>
-                                    <a href="{{ url_for('edit_device', device_id=device.id) }}" class="btn btn-outline-primary" title="编辑">
+                                    <a href="{{ url_for('device.edit_device', device_id=device.id) }}" class="btn btn-outline-primary" title="编辑">
                                         <i class="fas fa-edit"></i>
                                     </a>
                                     <button class="btn btn-outline-danger delete-btn" data-device-id="{{ device.id }}" data-device-name="{{ device.name }}" title="删除">
@@ -142,7 +148,7 @@
         </div>
         <h3 class="mb-3">暂无设备</h3>
         <p class="text-muted mb-4">开始添加您的第一个VTO设备</p>
-        <a href="{{ url_for('add_device') }}" class="btn btn-primary">
+        <a href="{{ url_for('device.add_device') }}" class="btn btn-primary">
             <i class="fas fa-plus me-2"></i>
             添加设备
         </a>
@@ -274,4 +280,4 @@ function showMessage(type, message) {
     }, 5000);
 }
 </script>
-{% endblock %} 
+{% endblock %}

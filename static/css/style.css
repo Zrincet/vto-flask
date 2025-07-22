@@ -315,16 +315,16 @@ body {
     font-weight: 500;
 }
 
-.menu-link.active::before {
-    content: '';
-    position: absolute;
-    left: -var(--spacing-md);
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--primary-color);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
-}
+/*.menu-link.active::before {*/
+/*    content: '';*/
+/*    position: absolute;*/
+/*    left: -var(--spacing-md);*/
+/*    top: 0;*/
+/*    bottom: 0;*/
+/*    width: 3px;*/
+/*    background: var(--primary-color);*/
+/*    border-radius: 0 var(--border-radius) var(--border-radius) 0;*/
+/*}*/
 
 .menu-link i {
     font-size: 1.125rem;

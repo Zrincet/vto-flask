@@ -1,28 +1,476 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - VTO设备管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            /* 使用与系统一致的主色调 - 商务蓝 */
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --primary-light: #dbeafe;
+            --primary-dark: #1e40af;
+            
+            /* 辅助色调 */
+            --secondary-color: #475569;
+            --secondary-hover: #334155;
+            --secondary-light: #f1f5f9;
+            
+            /* 状态色 */
+            --success-color: #059669;
+            --success-light: #d1fae5;
+            --danger-color: #dc2626;
+            --danger-light: #fecaca;
+            --info-color: #0891b2;
+            --info-light: #cffafe;
+            
+            /* 背景色 */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --bg-dark: #0f172a;
+            
+            /* 文字色 */
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --text-light: #94a3b8;
+            --text-inverse: #ffffff;
+            
+            /* 边框和阴影 */
+            --border-color: #e2e8f0;
+            --card-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --border-radius: 16px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-{% block title %}登录 - VTO设备管理系统{% endblock %}
+        * {
+            box-sizing: border-box;
+        }
 
-{% block content %}
-<div class="auth-container">
-    <div class="auth-wrapper">
-        <div class="auth-card">
-            <div class="auth-header">
-                <div class="auth-icon">
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: var(--bg-secondary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.02) 0%, rgba(30, 64, 175, 0.03) 100%);
+            pointer-events: none;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .login-card {
+            background: var(--bg-primary);
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
+            overflow: hidden;
+            animation: slideUp 0.8s ease-out;
+            border: 1px solid var(--border-color);
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(40px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .login-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: var(--text-inverse);
+            padding: 50px 40px 40px;
+            text-align: center;
+            position: relative;
+        }
+
+        .login-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border-radius: 0 0 50% 50%;
+            transform: scaleX(1.5);
+        }
+
+        .login-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 2.2rem;
+            transition: var(--transition);
+        }
+
+        .login-icon:hover {
+            transform: scale(1.1) rotate(5deg);
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .login-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .login-subtitle {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin: 0;
+            font-weight: 300;
+        }
+
+        .login-body {
+            padding: 50px 40px 40px;
+        }
+
+        .welcome-text {
+            text-align: center;
+            margin-bottom: 35px;
+            color: var(--text-muted);
+        }
+
+        .welcome-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .welcome-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        .input-group {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: var(--transition);
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+        }
+
+        .input-group:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+
+        .input-group.focused {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+
+        .input-group-text {
+            background: var(--bg-tertiary);
+            border: none;
+            color: var(--text-muted);
+            padding: 18px;
+            width: 55px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+
+        .input-group.focused .input-group-text {
+            background: var(--primary-light);
+            color: var(--primary-color);
+        }
+
+        .form-control {
+            border: none;
+            padding: 18px 20px;
+            font-size: 1rem;
+            transition: var(--transition);
+            background: transparent;
+            color: var(--text-primary);
+        }
+
+        .form-control:focus {
+            border: none;
+            box-shadow: none;
+            outline: none;
+            background: transparent;
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 18px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border: none;
+            color: var(--text-inverse);
+            border-radius: 12px;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .btn-login::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.6s;
+        }
+
+        .btn-login:hover::before {
+            left: 100%;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-login:active {
+            transform: translateY(-1px);
+        }
+
+        .btn-login:disabled {
+            background: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .login-options {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .divider {
+            position: relative;
+            margin: 25px 0;
+            text-align: center;
+            color: #adb5bd;
+            font-size: 0.9rem;
+        }
+
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--border-color);
+            z-index: 1;
+        }
+
+        .divider span {
+            background: var(--bg-primary);
+            padding: 0 15px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .footer-links {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .footer-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            margin: 0 10px;
+            transition: var(--transition);
+        }
+
+        .footer-link:hover {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+
+        .system-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-align: center;
+            z-index: 1;
+        }
+
+        .alert {
+            margin-bottom: 25px;
+            border: none;
+            border-radius: 12px;
+            padding: 15px;
+            font-size: 0.95rem;
+        }
+
+        .alert-danger {
+            background: var(--danger-light);
+            color: var(--danger-color);
+            border-left: 4px solid var(--danger-color);
+        }
+
+        .alert-success {
+            background: var(--success-light);
+            color: var(--success-color);
+            border-left: 4px solid var(--success-color);
+        }
+
+        .alert-info {
+            background: var(--info-light);
+            color: var(--info-color);
+            border-left: 4px solid var(--info-color);
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 576px) {
+            .login-container {
+                padding: 15px;
+                max-width: 100%;
+            }
+            
+            .login-header {
+                padding: 40px 25px 30px;
+            }
+            
+            .login-body {
+                padding: 40px 25px 30px;
+            }
+            
+            .login-title {
+                font-size: 1.7rem;
+            }
+            
+            .login-icon {
+                width: 70px;
+                height: 70px;
+                font-size: 2rem;
+            }
+            
+            .welcome-title {
+                font-size: 1.2rem;
+            }
+        }
+
+        @media (max-width: 375px) {
+            .login-header {
+                padding: 35px 20px 25px;
+            }
+            
+            .login-body {
+                padding: 35px 20px 25px;
+            }
+            
+            .login-title {
+                font-size: 1.5rem;
+            }
+        }
+
+        @media (min-width: 768px) {
+            .login-container {
+                max-width: 450px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-icon">
                     <i class="fas fa-door-open"></i>
                 </div>
-                <h1 class="auth-title">VTO设备管理系统</h1>
-                <p class="auth-subtitle">企业级门禁管理解决方案</p>
+                <h1 class="login-title">VTO门禁系统</h1>
+{#                <p class="login-subtitle">企业级智能门禁管理平台</p>#}
             </div>
             
-            <div class="auth-body">
-                <form method="POST" class="auth-form">
+            <div class="login-body">
+                <div class="welcome-text">
+                    <div class="welcome-title">欢迎回来</div>
+                    <p class="welcome-desc">请使用您的账户登录系统</p>
+                </div>
+
+                <!-- Flash消息 -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'info-circle' if category == 'info' else 'check-circle' }}"></i>
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <form method="POST" class="login-form" id="loginForm">
                     <div class="form-group">
                         <label for="username" class="form-label">用户名</label>
                         <div class="input-group">
                             <span class="input-group-text">
                                 <i class="fas fa-user"></i>
                             </span>
-                            <input type="text" class="form-control" id="username" name="username" placeholder="请输入用户名" required autocomplete="username">
+                            <input type="text" class="form-control" id="username" name="username" 
+                                   placeholder="请输入用户名" required autocomplete="username" autofocus>
                         </div>
                     </div>
                     
@@ -32,271 +480,133 @@
                             <span class="input-group-text">
                                 <i class="fas fa-lock"></i>
                             </span>
-                            <input type="password" class="form-control" id="password" name="password" placeholder="请输入密码" required autocomplete="current-password">
+                            <input type="password" class="form-control" id="password" name="password" 
+                                   placeholder="请输入密码" required autocomplete="current-password">
                         </div>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary btn-lg btn-block" id="loginBtn">
+                    <button type="submit" class="btn-login" id="loginBtn">
                         <i class="fas fa-sign-in-alt"></i>
                         登录系统
                     </button>
                 </form>
+                
+{#                <div class="footer-links">#}
+{#                    <a href="#" class="footer-link">#}
+{#                        <i class="fas fa-question-circle"></i>#}
+{#                        使用帮助#}
+{#                    </a>#}
+{#                    <a href="#" class="footer-link">#}
+{#                        <i class="fas fa-shield-alt"></i>#}
+{#                        安全说明#}
+{#                    </a>#}
+{#                </div>#}
             </div>
         </div>
     </div>
-</div>
 
-<style>
-.auth-container {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 1rem;
-}
+    <div class="system-info">
+        <i class="fas fa-copyright"></i>
+        VTO门禁管理系统
+    </div>
 
-.auth-wrapper {
-    width: 100%;
-    max-width: 400px;
-    margin: 0 auto;
-}
-
-.auth-card {
-    background: white;
-    border-radius: 16px;
-    padding: 2rem;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.auth-header {
-    text-align: center;
-    margin-bottom: 2rem;
-}
-
-.auth-icon {
-    width: 64px;
-    height: 64px;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 1rem;
-    color: white;
-    font-size: 1.5rem;
-}
-
-.auth-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #1f2937;
-    margin-bottom: 0.5rem;
-}
-
-.auth-subtitle {
-    color: #6b7280;
-    font-size: 0.9rem;
-    margin-bottom: 0;
-}
-
-.auth-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
-.form-group {
-    margin-bottom: 0;
-}
-
-.form-label {
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.5rem;
-    display: block;
-}
-
-.input-group {
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.input-group-text {
-    background: #f9fafb;
-    border: 1px solid #d1d5db;
-    border-right: none;
-    border-radius: 8px 0 0 8px;
-    padding: 0.75rem 1rem;
-    color: #6b7280;
-    display: flex;
-    align-items: center;
-    min-width: 48px;
-    justify-content: center;
-}
-
-.form-control {
-    background: white;
-    border: 1px solid #d1d5db;
-    border-left: none;
-    border-radius: 0 8px 8px 0;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    transition: all 0.2s ease;
-    width: 100%;
-}
-
-.form-control:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.form-control:focus + .input-group-text,
-.input-group:focus-within .input-group-text {
-    border-color: #2563eb;
-    background: #eff6ff;
-    color: #2563eb;
-}
-
-.btn-block {
-    width: 100%;
-    padding: 0.875rem 2rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    margin-top: 0.5rem;
-}
-
-.btn-primary {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    border: none;
-    color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #1d4ed8, #1e40af);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.btn-primary:disabled {
-    background: #9ca3af;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-}
-
-/* 移动端适配 */
-@media (max-width: 480px) {
-    .auth-container {
-        padding: 0.5rem;
-    }
-    
-    .auth-card {
-        padding: 1.5rem;
-        border-radius: 12px;
-    }
-    
-    .auth-title {
-        font-size: 1.25rem;
-    }
-    
-    .auth-subtitle {
-        font-size: 0.8rem;
-    }
-    
-    .auth-icon {
-        width: 56px;
-        height: 56px;
-        font-size: 1.25rem;
-    }
-    
-    .form-control, .input-group-text {
-        padding: 0.625rem 0.875rem;
-        font-size: 0.9rem;
-    }
-    
-    .btn-block {
-        padding: 0.75rem 1.5rem;
-        font-size: 0.9rem;
-    }
-}
-
-/* 超小屏幕 */
-@media (max-width: 320px) {
-    .auth-card {
-        padding: 1rem;
-        margin: 0.5rem;
-    }
-    
-    .auth-title {
-        font-size: 1.125rem;
-    }
-    
-    .auth-form {
-        gap: 1rem;
-    }
-}
-</style>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const usernameInput = document.getElementById('username');
-    const passwordInput = document.getElementById('password');
-    const loginBtn = document.getElementById('loginBtn');
-    const loginForm = document.querySelector('.auth-form');
-    
-    // 自动聚焦用户名输入框
-    usernameInput.focus();
-    
-    // 表单提交处理
-    loginForm.addEventListener('submit', function(e) {
-        // 禁用按钮避免重复提交
-        loginBtn.disabled = true;
-        loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 登录中...';
-        
-        // 验证输入
-        const username = usernameInput.value.trim();
-        const password = passwordInput.value.trim();
-        
-        if (!username || !password) {
-            e.preventDefault();
-            loginBtn.disabled = false;
-            loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> 登录系统';
-            alert('请输入用户名和密码');
-            return;
-        }
-        
-        // 如果有错误，恢复按钮状态
-        setTimeout(() => {
-            loginBtn.disabled = false;
-            loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> 登录系统';
-        }, 3000);
-    });
-    
-    // 回车键提交表单
-    document.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && !loginBtn.disabled) {
-            loginForm.dispatchEvent(new Event('submit'));
-        }
-    });
-    
-    // 输入框动画效果
-    [usernameInput, passwordInput].forEach(input => {
-        input.addEventListener('focus', function() {
-            this.closest('.input-group').classList.add('focused');
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            const loginBtn = document.getElementById('loginBtn');
+            const loginForm = document.getElementById('loginForm');
+            
+            // 输入框焦点效果
+            [usernameInput, passwordInput].forEach(input => {
+                input.addEventListener('focus', function() {
+                    this.closest('.input-group').classList.add('focused');
+                });
+                
+                input.addEventListener('blur', function() {
+                    this.closest('.input-group').classList.remove('focused');
+                });
+                
+                // 输入时的动画效果
+                input.addEventListener('input', function() {
+                    const group = this.closest('.input-group');
+                    if (this.value.length > 0) {
+                        group.style.transform = 'translateY(-1px)';
+                    } else {
+                        group.style.transform = 'translateY(0)';
+                    }
+                });
+            });
+            
+            // 表单提交处理
+            loginForm.addEventListener('submit', function(e) {
+                const username = usernameInput.value.trim();
+                const password = passwordInput.value.trim();
+                
+                if (!username || !password) {
+                    e.preventDefault();
+                    showNotification('请输入用户名和密码', 'error');
+                    return;
+                }
+                
+                // 禁用按钮避免重复提交
+                loginBtn.disabled = true;
+                loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 登录中...';
+                
+                // 如果有错误，恢复按钮状态
+                setTimeout(() => {
+                    if (loginBtn.disabled) {
+                        loginBtn.disabled = false;
+                        loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> 登录系统';
+                    }
+                }, 5000);
+            });
+            
+            // 回车键提交表单
+            document.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !loginBtn.disabled) {
+                    loginForm.dispatchEvent(new Event('submit'));
+                }
+            });
+            
+            // 页面加载动画
+            setTimeout(() => {
+                document.querySelector('.login-card').style.transform = 'scale(1.02)';
+                setTimeout(() => {
+                    document.querySelector('.login-card').style.transform = 'scale(1)';
+                }, 200);
+            }, 100);
+            
+            // 显示通知
+            function showNotification(message, type = 'info') {
+                // 移除现有的通知
+                const existingAlert = document.querySelector('.alert');
+                if (existingAlert) {
+                    existingAlert.remove();
+                }
+                
+                // 创建新的通知
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show`;
+                alert.innerHTML = `
+                    <i class="fas fa-${type === 'error' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                // 插入到表单前
+                const form = document.querySelector('.login-form');
+                form.parentNode.insertBefore(alert, form);
+                
+                // 3秒后自动移除
+                setTimeout(() => {
+                    if (alert.parentNode) {
+                        alert.remove();
+                    }
+                }, 3000);
+            }
         });
-        
-        input.addEventListener('blur', function() {
-            this.closest('.input-group').classList.remove('focused');
-        });
-    });
-});
-</script>
-{% endblock %} 
+    </script>
+</body>
+</html> 

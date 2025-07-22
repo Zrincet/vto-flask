@@ -9,4 +9,5 @@ MarkupSafe==2.1.3
 itsdangerous==2.1.2
 click==8.1.7
 blinker==1.6.3
-SQLAlchemy==2.0.21 
+SQLAlchemy==2.0.21
+Hap-python-pycryptodome==4.9.7
