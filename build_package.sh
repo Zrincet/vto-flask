@@ -31,6 +31,9 @@ DISTLIB_WHL_URL="https://files.pythonhosted.org/packages/33/6b/e0547afaf41bf2c42
 FILELOCK_WHL_URL="https://files.pythonhosted.org/packages/4d/36/2a115987e2d8c300a974597416d9de88f2444426de9571f4b59b2cca3acc/filelock-3.18.0-py3-none-any.whl"
 PLATFORMDIRS_WHL_URL="https://files.pythonhosted.org/packages/fe/39/979e8e21520d4e47a0bbe349e2713c0aac6f3d853d0e5b34d76206c439aa/platformdirs-4.3.8-py3-none-any.whl"
 
+# pycryptodome MIPS架构特定包
+PYCRYPTODOME_WHL_URL="https://oss-hk.hozoy.cn/vto-flask/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl"
+
 # 日志函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -323,6 +326,19 @@ download_python_venv() {
             log_warning "✗ platformdirs-4.3.8-py3-none-any.whl 下载失败"
         fi
     fi
+    
+    # 下载pycryptodome MIPS版本
+    log_info "下载: pycryptodome-3.23.0-cp37-abi3-linux_mips.whl"
+    if wget --timeout=30 --tries=3 "$PYCRYPTODOME_WHL_URL" -O pycryptodome-3.23.0-cp37-abi3-linux_mips.whl 2>/dev/null; then
+        log_success "✓ pycryptodome-3.23.0-cp37-abi3-linux_mips.whl 下载成功"
+    else
+        log_warning "✗ pycryptodome-3.23.0-cp37-abi3-linux_mips.whl 下载失败，尝试使用curl..."
+        if curl -L -o pycryptodome-3.23.0-cp37-abi3-linux_mips.whl "$PYCRYPTODOME_WHL_URL" --connect-timeout 30 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ pycryptodome-3.23.0-cp37-abi3-linux_mips.whl 下载成功"
+        else
+            log_warning "✗ pycryptodome-3.23.0-cp37-abi3-linux_mips.whl 下载失败"
+        fi
+    fi
 }
 
 # 创建安装脚本
@@ -590,6 +606,69 @@ mkdir -p "$INSTALL_DIR/logs"
 mkdir -p "$INSTALL_DIR/db"
 mkdir -p "$INSTALL_DIR/instance"
 
+# 安装virtualenv工具及其依赖
+log_info "安装virtualenv工具及其依赖..."
+cd ..
+
+# 创建pip缓存目录
+mkdir -p /opt/tmp/pip
+
+# 安装distlib（基础依赖）
+if [ -f "distlib-0.4.0-py2.py3-none-any.whl" ]; then
+    log_info "安装distlib依赖..."
+    if pip3 install distlib-0.4.0-py2.py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
+        log_success "distlib安装成功"
+    else
+        log_warning "distlib安装失败"
+    fi
+else
+    log_warning "未找到distlib包"
+fi
+
+# 安装platformdirs
+if [ -f "platformdirs-4.3.8-py3-none-any.whl" ]; then
+    log_info "安装platformdirs依赖..."
+    if pip3 install platformdirs-4.3.8-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
+        log_success "platformdirs安装成功"
+    else
+        log_warning "platformdirs安装失败"
+    fi
+else
+    log_warning "未找到platformdirs包"
+fi
+
+# 安装filelock
+if [ -f "filelock-3.18.0-py3-none-any.whl" ]; then
+    log_info "安装filelock依赖..."
+    if pip3 install filelock-3.18.0-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
+        log_success "filelock安装成功"
+    else
+        log_warning "filelock安装失败"
+    fi
+else
+    log_warning "未找到filelock包"
+fi
+
+# 安装virtualenv工具
+if [ -f "virtualenv-20.32.0-py3-none-any.whl" ]; then
+    log_info "安装virtualenv工具..."
+    if pip3 install virtualenv-20.32.0-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
+        log_success "virtualenv工具安装成功"
+        
+        # 验证virtualenv安装
+        if virtualenv --version >/dev/null 2>&1; then
+            VIRTUALENV_VERSION=$(virtualenv --version 2>&1)
+            log_success "virtualenv验证成功: $VIRTUALENV_VERSION"
+        else
+            log_warning "virtualenv安装后验证失败"
+        fi
+    else
+        log_warning "virtualenv工具安装失败"
+    fi
+else
+    log_warning "未找到virtualenv工具"
+fi
+
 # 在VTO目录中创建虚拟环境
 log_info "在VTO目录创建Python虚拟环境..."
 cd "$INSTALL_DIR"
@@ -621,8 +700,8 @@ if [ -f "../tmp/vto-package/venv.zip" ]; then
         log_success "预编译包解压完成"
         
         # 检查源包目录
-        if [ -d "venv/lib/python3.10/site-packages" ]; then
-            SOURCE_PACKAGES="venv/lib/python3.10/site-packages"
+        if [ -d "venv/lib/python3.11/site-packages" ]; then
+            SOURCE_PACKAGES="venv/lib/python3.11/site-packages"
         elif [ -d "venv/lib/python3.11/site-packages" ]; then
             SOURCE_PACKAGES="venv/lib/python3.11/site-packages"
         else
@@ -673,11 +752,26 @@ fi
 if [ -f "requirements.txt" ]; then
     log_info "检查并安装Python依赖..."
     
+    # 创建pip缓存目录
+    mkdir -p /opt/tmp/pip
+    
     # 激活虚拟环境
     . venv/bin/activate
     
-    # 安装requirements.txt中的依赖（跳过已存在的）
-    if pip install -r requirements.txt --no-cache-dir; then
+    # 先安装pycryptodome MIPS版本（优先安装特定架构版本）
+    if [ -f "../tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl" ]; then
+        log_info "安装MIPS版本pycryptodome..."
+        if pip install ../tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl --cache-dir /opt/tmp/pip 2>/dev/null; then
+            log_success "pycryptodome MIPS版本安装成功"
+        else
+            log_warning "pycryptodome MIPS版本安装失败，将尝试通过requirements.txt安装通用版本"
+        fi
+    else
+        log_warning "未找到pycryptodome MIPS版本包"
+    fi
+    
+    # 安装requirements.txt中的依赖（使用指定缓存目录）
+    if pip install -r requirements.txt --cache-dir /opt/tmp/pip; then
         log_success "Python依赖检查和安装完成"
     else
         log_warning "部分Python依赖安装失败，可能影响功能"
@@ -750,6 +844,8 @@ create_package() {
         log_info "  ✓ opkg核心文件"
         log_info "  ✓ Python3和FFmpeg的IPK包"
         log_info "  ✓ 预编译Python虚拟环境"
+        log_info "  ✓ virtualenv工具及其依赖包"
+        log_info "  ✓ pycryptodome MIPS版本包"
         log_info "  ✓ VTO应用程序源码"
         log_info "  ✓ 离线安装脚本"
         

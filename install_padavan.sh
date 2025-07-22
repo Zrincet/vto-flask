@@ -333,10 +333,13 @@ install_python_environment() {
     # 按依赖顺序安装virtualenv工具及其依赖
     log_info "安装virtualenv工具及其依赖..."
     
+    # 创建pip缓存目录
+    mkdir -p /opt/tmp/pip
+    
     # 安装distlib（基础依赖）
     if [ -f "distlib-0.4.0-py2.py3-none-any.whl" ]; then
         log_info "安装distlib依赖..."
-        if pip3 install distlib-0.4.0-py2.py3-none-any.whl --no-deps 2>/dev/null; then
+        if pip3 install distlib-0.4.0-py2.py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
             log_success "distlib安装成功"
         else
             log_warning "distlib安装失败"
@@ -348,7 +351,7 @@ install_python_environment() {
     # 安装platformdirs
     if [ -f "platformdirs-4.3.8-py3-none-any.whl" ]; then
         log_info "安装platformdirs依赖..."
-        if pip3 install platformdirs-4.3.8-py3-none-any.whl --no-deps 2>/dev/null; then
+        if pip3 install platformdirs-4.3.8-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
             log_success "platformdirs安装成功"
         else
             log_warning "platformdirs安装失败"
@@ -360,7 +363,7 @@ install_python_environment() {
     # 安装filelock
     if [ -f "filelock-3.18.0-py3-none-any.whl" ]; then
         log_info "安装filelock依赖..."
-        if pip3 install filelock-3.18.0-py3-none-any.whl --no-deps 2>/dev/null; then
+        if pip3 install filelock-3.18.0-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
             log_success "filelock安装成功"
         else
             log_warning "filelock安装失败"
@@ -372,7 +375,7 @@ install_python_environment() {
     # 最后安装virtualenv工具
     if [ -f "virtualenv-20.32.0-py3-none-any.whl" ]; then
         log_info "安装virtualenv工具..."
-        if pip3 install virtualenv-20.32.0-py3-none-any.whl --no-deps 2>/dev/null; then
+        if pip3 install virtualenv-20.32.0-py3-none-any.whl --no-deps --cache-dir /opt/tmp/pip 2>/dev/null; then
             log_success "virtualenv工具安装成功"
             
             # 验证virtualenv安装
@@ -619,6 +622,8 @@ show_completion_info() {
     log_info "  ✓ Python3 3.11.10（完整环境）"
     log_info "  ✓ SQLite3数据库支持"
     log_info "  ✓ FFmpeg 6.1.2多媒体支持"
+    log_info "  ✓ virtualenv虚拟环境工具"
+    log_info "  ✓ pycryptodome MIPS版本"
     log_info "  ✓ 预编译Python虚拟环境"
     log_info "  ✓ VTO Flask应用程序"
     echo
