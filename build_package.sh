@@ -597,7 +597,12 @@ cd "$INSTALL_DIR"
 # 使用virtualenv创建虚拟环境（已在前面安装）
 if virtualenv --version >/dev/null 2>&1; then
     log_info "使用virtualenv创建虚拟环境..."
-    if virtualenv venv --python=python3; then
+    
+    # 创建app-data目录
+    mkdir -p /opt/tmp/virtualenv
+    
+    # 使用自定义app-data目录创建虚拟环境
+    if virtualenv venv --python=python3 --app-data /opt/tmp/virtualenv; then
         log_success "virtualenv虚拟环境创建成功"
     else
         log_error "virtualenv创建失败"
