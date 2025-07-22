@@ -486,6 +486,7 @@ create_system_service() {
 DAEMON="VTO Flask App"
 PIDFILE="/var/run/vto.pid"
 VTO_DIR="/opt/vto"
+LOG_FILE="$VTO_DIR/logs/app.log"
 
 start() {
     echo -n "Starting $DAEMON: "
@@ -519,6 +520,58 @@ restart() {
     start
 }
 
+status() {
+    echo -n "Status of $DAEMON: "
+    cd "$VTO_DIR"
+    if [ -f "$VTO_DIR/server.sh" ]; then
+        ./server.sh status 2>/dev/null
+    else
+        echo "FAIL (script not found)"
+    fi
+}
+
+logs() {
+    echo "VTO Application Logs:"
+    echo "===================="
+    if [ -f "$LOG_FILE" ]; then
+        tail -f "$LOG_FILE"
+    else
+        echo "Log file not found: $LOG_FILE"
+        echo "Available log files in $VTO_DIR/logs/:"
+        ls -la "$VTO_DIR/logs/" 2>/dev/null || echo "No logs directory found"
+    fi
+}
+
+update() {
+    echo "Updating VTO Application..."
+    cd "$VTO_DIR"
+    if [ -f "$VTO_DIR/update_and_restart.sh" ]; then
+        echo "Starting update process..."
+        ./update_and_restart.sh
+    else
+        echo "FAIL (update script not found)"
+        echo "Please ensure update_and_restart.sh exists in $VTO_DIR"
+    fi
+}
+
+show_help() {
+    echo "VTO Flask Application Management Script"
+    echo "======================================="
+    echo "Usage: $0 {start|stop|restart|status|logs|update|help}"
+    echo ""
+    echo "Commands:"
+    echo "  start    - Start VTO application"
+    echo "  stop     - Stop VTO application"
+    echo "  restart  - Restart VTO application"
+    echo "  status   - Show application status"
+    echo "  logs     - Show and follow application logs"
+    echo "  update   - Update application to latest version"
+    echo "  help     - Show this help message"
+    echo ""
+    echo "Application directory: $VTO_DIR"
+    echo "Log file: $LOG_FILE"
+}
+
 case "$1" in
     start)
         start
@@ -529,8 +582,21 @@ case "$1" in
     restart)
         restart
         ;;
+    status)
+        status
+        ;;
+    logs)
+        logs
+        ;;
+    update)
+        update
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart}"
+        echo "Usage: $0 {start|stop|restart|status|logs|update|help}"
+        echo "Run '$0 help' for detailed information"
         exit 1
         ;;
 esac
@@ -539,6 +605,41 @@ exit 0
 EOF
 
     chmod +x /opt/etc/init.d/vto 2>/dev/null || true
+    
+    # 创建系统链接，使vto命令可以在任何地方调用
+    log_info "创建系统链接..."
+    
+    # 确保/opt/bin目录存在
+    mkdir -p /opt/bin
+    
+    # 创建软链接到/opt/bin
+    if ln -sf /opt/etc/init.d/vto /opt/bin/vto 2>/dev/null; then
+        log_success "vto命令已添加到系统PATH"
+    else
+        log_warning "创建系统链接失败，但不影响功能"
+    fi
+    
+    # 检查PATH环境变量
+    if echo "$PATH" | grep -q "/opt/bin"; then
+        log_success "系统PATH已包含/opt/bin"
+    else
+        log_info "将/opt/bin添加到PATH环境变量..."
+        
+        # 添加到环境配置文件
+        if [ ! -f "/opt/etc/profile.d/vto.sh" ]; then
+            cat > /opt/etc/profile.d/vto.sh << 'EOFPATH'
+#!/bin/sh
+# VTO application environment
+export PATH="/opt/bin:$PATH"
+EOFPATH
+            chmod +x /opt/etc/profile.d/vto.sh
+            log_success "PATH环境变量已配置"
+        fi
+        
+        # 更新当前会话的PATH
+        export PATH="/opt/bin:$PATH"
+    fi
+    
     log_success "系统服务创建完成"
 }
 
@@ -603,16 +704,20 @@ show_completion_info() {
     log_info "应用访问地址: http://$LOCAL_IP:8998"
     log_info "默认账户: admin / 123456"
     echo
-    log_info "服务管理命令:"
+    log_info "VTO管理命令（可在任何目录使用）:"
+    log_info "  启动服务: vto start"
+    log_info "  停止服务: vto stop"
+    log_info "  重启服务: vto restart"
+    log_info "  查看状态: vto status"
+    log_info "  查看日志: vto logs"
+    log_info "  更新应用: vto update"
+    log_info "  帮助信息: vto help"
+    echo
+    log_info "传统服务管理命令:"
     log_info "  启动服务: $INSTALL_DIR/server.sh start"
     log_info "  停止服务: $INSTALL_DIR/server.sh stop"
     log_info "  重启服务: $INSTALL_DIR/server.sh restart"
     log_info "  查看状态: $INSTALL_DIR/server.sh status"
-    echo
-    log_info "系统服务:"
-    log_info "  启动: /opt/etc/init.d/vto start"
-    log_info "  停止: /opt/etc/init.d/vto stop"
-    log_info "  重启: /opt/etc/init.d/vto restart"
     echo
     log_info "日志文件: $INSTALL_DIR/logs/"
     echo

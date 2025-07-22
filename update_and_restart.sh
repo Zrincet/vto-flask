@@ -175,13 +175,16 @@ kill_old_process() {
 install_dependencies() {
     log_message "检查并安装依赖..."
     
+    # 创建pip缓存目录
+    mkdir -p /opt/tmp/pip
+    
     # 激活虚拟环境
     source "$VENV_PATH/bin/activate"
     
     # 检查requirements.txt是否存在
     if [ -f "requirements.txt" ]; then
         log_message "更新Python依赖..."
-        pip install -r requirements.txt 2>&1 | tee -a "$LOG_FILE"
+        pip install -r requirements.txt --cache-dir /opt/tmp/pip 2>&1 | tee -a "$LOG_FILE"
         log_message "依赖更新完成"
     else
         log_message "未找到requirements.txt，跳过依赖更新"
