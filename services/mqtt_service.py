@@ -54,6 +54,11 @@ class MQTTClient:
         self.health_check_thread = None
         self.stop_event = threading.Event()
         
+        # 定时重连机制
+        self.periodic_reconnect_interval = 2 * 60 * 60  # 2小时（秒）
+        self.periodic_reconnect_thread = None
+        self.last_periodic_reconnect_time = None
+        
     def set_app(self, app):
         """设置Flask应用实例"""
         self._app = app
@@ -74,6 +79,9 @@ class MQTTClient:
         # 启动健康检查线程
         self._start_health_check()
         
+        # 启动定时重连线程
+        self._start_periodic_reconnect()
+        
     def stop(self):
         """停止MQTT客户端"""
         logger.info(f"正在停止MQTT客户端 {self.client_id}")
@@ -89,6 +97,10 @@ class MQTTClient:
         # 停止健康检查线程
         if self.health_check_thread and self.health_check_thread.is_alive():
             self.health_check_thread.join(timeout=2)
+        
+        # 停止定时重连线程
+        if self.periodic_reconnect_thread and self.periodic_reconnect_thread.is_alive():
+            self.periodic_reconnect_thread.join(timeout=2)
         
         # 断开MQTT连接
         if self.client:
@@ -149,6 +161,9 @@ class MQTTClient:
             self.last_connect_time = datetime.now()
             self.reconnect_attempts = 0
             self.current_reconnect_interval = self.reconnect_interval  # 重置重连间隔
+            
+            # 记录定时重连时间
+            self.last_periodic_reconnect_time = datetime.now()
             
             logger.info(f"MQTT客户端 {self.client_id} 连接成功")
             
@@ -267,6 +282,90 @@ class MQTTClient:
                     
             except Exception as e:
                 logger.error(f"MQTT客户端 {self.client_id} 健康检查出错: {str(e)}")
+
+    def _start_periodic_reconnect(self):
+        """启动定时重连线程"""
+        if self.periodic_reconnect_thread and self.periodic_reconnect_thread.is_alive():
+            return
+            
+        self.periodic_reconnect_thread = threading.Thread(target=self._periodic_reconnect_worker, daemon=True)
+        self.periodic_reconnect_thread.start()
+
+    def _periodic_reconnect_worker(self):
+        """定时重连工作线程，每2小时重连一次"""
+        while self.is_running and not self.stop_event.is_set():
+            try:
+                # 每10分钟检查一次是否需要定时重连
+                if self.stop_event.wait(600):  # 600秒 = 10分钟
+                    break  # 收到停止信号
+                
+                if not self.is_running:
+                    break
+                
+                # 检查是否需要定时重连
+                now = datetime.now()
+                should_reconnect = False
+                
+                if self.last_periodic_reconnect_time is None:
+                    # 首次启动，如果已经连接超过重连间隔，则执行重连
+                    if (self.last_connect_time and 
+                        now - self.last_connect_time >= timedelta(seconds=self.periodic_reconnect_interval)):
+                        should_reconnect = True
+                else:
+                    # 检查距离上次定时重连是否已超过间隔
+                    if now - self.last_periodic_reconnect_time >= timedelta(seconds=self.periodic_reconnect_interval):
+                        should_reconnect = True
+                
+                if should_reconnect and self.is_connected:
+                    logger.info(f"MQTT客户端 {self.client_id} 执行定时重连（每2小时）")
+                    self._perform_periodic_reconnect()
+                    
+            except Exception as e:
+                logger.error(f"MQTT客户端 {self.client_id} 定时重连线程出错: {str(e)}")
+
+    def _perform_periodic_reconnect(self):
+        """执行定时重连"""
+        try:
+            # 记录旧的订阅主题
+            old_subscribed_topics = self.subscribed_topics.copy()
+            
+            # 断开当前连接
+            if self.client and self.is_connected:
+                logger.info(f"MQTT客户端 {self.client_id} 断开当前连接准备重连")
+                try:
+                    self.client.loop_stop()
+                    self.client.disconnect()
+                except:
+                    pass
+                self.is_connected = False
+            
+            # 清空已订阅主题列表，重连后会重新订阅
+            self.subscribed_topics.clear()
+            
+            # 等待短暂时间确保连接完全断开
+            time.sleep(2)
+            
+            # 重新连接
+            if self.is_running:
+                logger.info(f"MQTT客户端 {self.client_id} 开始定时重连...")
+                self._connect()
+                
+                # 等待连接建立
+                for _ in range(10):  # 等待最多10秒
+                    if self.is_connected or not self.is_running:
+                        break
+                    time.sleep(1)
+                
+                if self.is_connected:
+                    logger.info(f"MQTT客户端 {self.client_id} 定时重连成功，已重新订阅所有主题")
+                    self.last_periodic_reconnect_time = datetime.now()
+                else:
+                    logger.warning(f"MQTT客户端 {self.client_id} 定时重连失败")
+                    # 恢复旧的订阅主题列表
+                    self.subscribed_topics = old_subscribed_topics
+                    
+        except Exception as e:
+            logger.error(f"MQTT客户端 {self.client_id} 执行定时重连时出错: {str(e)}")
 
     def _subscribe_device_topics(self):
         """订阅设备主题"""
@@ -410,6 +509,8 @@ class MQTTClient:
             'last_connect_time': self.last_connect_time.isoformat() if self.last_connect_time else None,
             'last_disconnect_time': self.last_disconnect_time.isoformat() if self.last_disconnect_time else None,
             'last_ping_time': self.last_ping_time.isoformat() if self.last_ping_time else None,
+            'last_periodic_reconnect_time': self.last_periodic_reconnect_time.isoformat() if self.last_periodic_reconnect_time else None,
+            'periodic_reconnect_interval': self.periodic_reconnect_interval,
             'subscribed_topics': list(self.subscribed_topics)
         }
 
