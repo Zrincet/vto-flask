@@ -614,9 +614,9 @@ else
 fi
 
 # 解压预编译包并迁移到新环境
-if [ -f "../venv.zip" ]; then
+if [ -f "../tmp/vto-package/venv.zip" ]; then
     log_info "解压预编译Python包..."
-    cd ..
+    cd ../tmp/vto-package
     if unzip -q venv.zip; then
         log_success "预编译包解压完成"
         
@@ -657,7 +657,7 @@ if [ -f "../venv.zip" ]; then
             fi
             
             # 清理临时解压的venv
-            cd ..
+            cd /opt/tmp/vto-package
             rm -rf venv
         fi
         
