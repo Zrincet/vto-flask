@@ -49,10 +49,16 @@ class MQTTClient:
         
         # 健康检查机制
         self.last_ping_time = None
+        self.last_activity_time = None  # 最后活动时间（连接成功或收到消息）
         self.ping_interval = 30  # 心跳间隔（秒）
-        self.ping_timeout = 10  # 心跳超时（秒）
+        self.ping_timeout = 120  # 心跳超时（秒），增加到2分钟
+        self.connection_timeout = 300  # 连接超时（秒），5分钟无活动视为断线
         self.health_check_thread = None
         self.stop_event = threading.Event()
+        
+        # 主动心跳检测
+        self.last_ping_sent = None
+        self.ping_pending = False
         
     def set_app(self, app):
         """设置Flask应用实例"""
@@ -123,14 +129,22 @@ class MQTTClient:
                 # paho-mqtt 1.x 版本
                 self.client = mqtt.Client(client_id=self.client_id)
             
+            # 设置MQTT协议版本为3.1.1（巴法云支持）
+            self.client.protocol = mqtt.MQTTv311
+            
             # 设置回调函数
             self.client.on_connect = self._on_connect
             self.client.on_message = self._on_message
             self.client.on_disconnect = self._on_disconnect
             self.client.on_ping = self._on_ping
+            self.client.on_socket_close = self._on_socket_close
+            self.client.on_socket_open = self._on_socket_open
             
             # 设置连接参数
-            self.client.keepalive = 60
+            self.client.keepalive = 60  # 保持连接60秒
+            
+            # 设置自动重连（让paho-mqtt库也尝试重连）
+            self.client.reconnect_delay_set(min_delay=1, max_delay=120)
             
             # 开始连接
             logger.info(f"正在连接MQTT服务器: {self.mqtt_host}:{self.mqtt_port} (客户端: {self.client_id})")
@@ -147,8 +161,10 @@ class MQTTClient:
         if rc == 0:
             self.is_connected = True
             self.last_connect_time = datetime.now()
+            self.last_activity_time = datetime.now()  # 更新活动时间
             self.reconnect_attempts = 0
             self.current_reconnect_interval = self.reconnect_interval  # 重置重连间隔
+            self.ping_pending = False  # 重置心跳等待状态
             
             logger.info(f"MQTT客户端 {self.client_id} 连接成功")
             
@@ -185,7 +201,22 @@ class MQTTClient:
     def _on_ping(self, client, userdata, mid):
         """MQTT心跳回调"""
         self.last_ping_time = datetime.now()
+        self.last_activity_time = datetime.now()
+        self.ping_pending = False  # 收到心跳响应，清除等待状态
         logger.debug(f"MQTT客户端 {self.client_id} 心跳正常")
+
+    def _on_socket_open(self, client, userdata, sock):
+        """Socket打开回调"""
+        logger.info(f"MQTT客户端 {self.client_id} Socket连接已打开")
+
+    def _on_socket_close(self, client, userdata, sock):
+        """Socket关闭回调"""
+        logger.warning(f"MQTT客户端 {self.client_id} Socket连接已关闭")
+        # Socket关闭通常意味着网络连接断开，标记为未连接
+        if self.is_connected:
+            self.is_connected = False
+            if self.auto_reconnect and self.is_running:
+                self._schedule_reconnect()
 
     def _schedule_reconnect(self):
         """安排重连"""
@@ -221,6 +252,11 @@ class MQTTClient:
                 break
                 
             logger.info(f"MQTT客户端 {self.client_id} 正在进行第 {self.reconnect_attempts} 次重连...")
+            
+            # 重置状态
+            self.ping_pending = False
+            self.last_ping_sent = None
+            
             self._connect()
             
             # 等待连接结果
@@ -253,10 +289,36 @@ class MQTTClient:
         while self.is_running and not self.stop_event.is_set():
             try:
                 if self.is_connected and self.client:
-                    # 检查心跳超时
-                    if (self.last_ping_time and 
-                        datetime.now() - self.last_ping_time > timedelta(seconds=self.ping_timeout + self.ping_interval)):
-                        logger.warning(f"MQTT客户端 {self.client_id} 心跳超时，触发重连")
+                    current_time = datetime.now()
+                    
+                    # 检查是否需要发送心跳
+                    if (not self.last_ping_sent or 
+                        current_time - self.last_ping_sent > timedelta(seconds=self.ping_interval)):
+                        if not self.ping_pending:
+                            try:
+                                # 发送心跳
+                                self.client.ping()
+                                self.last_ping_sent = current_time
+                                self.ping_pending = True
+                                logger.debug(f"MQTT客户端 {self.client_id} 发送心跳")
+                            except Exception as ping_error:
+                                logger.warning(f"MQTT客户端 {self.client_id} 发送心跳失败: {str(ping_error)}")
+                                self.is_connected = False
+                                if self.auto_reconnect:
+                                    self._schedule_reconnect()
+                    
+                    # 检查心跳响应超时
+                    if (self.ping_pending and self.last_ping_sent and 
+                        current_time - self.last_ping_sent > timedelta(seconds=self.ping_timeout)):
+                        logger.warning(f"MQTT客户端 {self.client_id} 心跳响应超时，触发重连")
+                        self.is_connected = False
+                        if self.auto_reconnect:
+                            self._schedule_reconnect()
+                    
+                    # 检查连接活动超时（基于最后活动时间）
+                    if (self.last_activity_time and 
+                        current_time - self.last_activity_time > timedelta(seconds=self.connection_timeout)):
+                        logger.warning(f"MQTT客户端 {self.client_id} 连接活动超时，触发重连")
                         self.is_connected = False
                         if self.auto_reconnect:
                             self._schedule_reconnect()
@@ -280,15 +342,25 @@ class MQTTClient:
             
             for device in devices:
                 if device.mqtt_topic and device.mqtt_topic not in self.subscribed_topics:
-                    self.client.subscribe(device.mqtt_topic)
-                    self.subscribed_topics.add(device.mqtt_topic)
-                    logger.info(f"客户端 {self.client_id} 已订阅主题: {device.mqtt_topic}")
+                    try:
+                        # 使用QoS 1确保消息可靠传输（巴法云支持QoS 0和1）
+                        result = self.client.subscribe(device.mqtt_topic, qos=1)
+                        if result[0] == mqtt.MQTT_ERR_SUCCESS:
+                            self.subscribed_topics.add(device.mqtt_topic)
+                            logger.info(f"客户端 {self.client_id} 已订阅主题: {device.mqtt_topic} (QoS=1)")
+                        else:
+                            logger.error(f"客户端 {self.client_id} 订阅主题 {device.mqtt_topic} 失败: {result}")
+                    except Exception as sub_error:
+                        logger.error(f"客户端 {self.client_id} 订阅主题 {device.mqtt_topic} 出错: {str(sub_error)}")
         except Exception as e:
             logger.error(f"订阅设备主题失败: {str(e)}")
 
     def _on_message(self, client, userdata, msg):
         """MQTT消息接收回调"""
         try:
+            # 更新活动时间
+            self.last_activity_time = datetime.now()
+            
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             logger.info(f"客户端 {self.client_id} 收到消息 - 主题: {topic}, 内容: {payload}")
@@ -382,9 +454,12 @@ class MQTTClient:
         """订阅设备主题"""
         if self.client and self.is_connected and topic not in self.subscribed_topics:
             try:
-                self.client.subscribe(topic)
-                self.subscribed_topics.add(topic)
-                logger.info(f"客户端 {self.client_id} 已订阅新主题: {topic}")
+                result = self.client.subscribe(topic, qos=1)
+                if result[0] == mqtt.MQTT_ERR_SUCCESS:
+                    self.subscribed_topics.add(topic)
+                    logger.info(f"客户端 {self.client_id} 已订阅新主题: {topic} (QoS=1)")
+                else:
+                    logger.error(f"客户端 {self.client_id} 订阅主题 {topic} 失败: {result}")
             except Exception as e:
                 logger.error(f"客户端 {self.client_id} 订阅主题 {topic} 失败: {str(e)}")
 
@@ -410,6 +485,9 @@ class MQTTClient:
             'last_connect_time': self.last_connect_time.isoformat() if self.last_connect_time else None,
             'last_disconnect_time': self.last_disconnect_time.isoformat() if self.last_disconnect_time else None,
             'last_ping_time': self.last_ping_time.isoformat() if self.last_ping_time else None,
+            'last_activity_time': self.last_activity_time.isoformat() if self.last_activity_time else None,
+            'last_ping_sent': self.last_ping_sent.isoformat() if self.last_ping_sent else None,
+            'ping_pending': self.ping_pending,
             'subscribed_topics': list(self.subscribed_topics)
         }
 
