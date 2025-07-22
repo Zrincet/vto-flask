@@ -421,9 +421,46 @@ deploy_vto_application() {
             mkdir -p "$INSTALL_DIR" || error_exit "无法创建安装目录 $INSTALL_DIR"
         fi
         
-        # 备份现有安装（如果存在）
+        # 备份用户数据和配置
+        BACKUP_DIR=""
+        USER_DATA_BACKUP=""
         if [ -d "$INSTALL_DIR" ] && [ "$(ls -A $INSTALL_DIR)" ]; then
             BACKUP_DIR="$INSTALL_DIR"_backup_$(date +%Y%m%d_%H%M%S)
+            USER_DATA_BACKUP="/opt/tmp/vto_user_data_$(date +%Y%m%d_%H%M%S)"
+            
+            log_info "备份用户数据..."
+            mkdir -p "$USER_DATA_BACKUP"
+            
+            # 备份数据库目录
+            if [ -d "$INSTALL_DIR/db" ]; then
+                cp -r "$INSTALL_DIR/db" "$USER_DATA_BACKUP/" 2>/dev/null || true
+                log_success "✓ 数据库备份完成"
+            fi
+            
+            # 备份instance目录（包含SQLite数据库）
+            if [ -d "$INSTALL_DIR/instance" ]; then
+                cp -r "$INSTALL_DIR/instance" "$USER_DATA_BACKUP/" 2>/dev/null || true
+                log_success "✓ 实例数据备份完成"
+            fi
+            
+            # 备份HomeKit状态文件
+            if [ -f "$INSTALL_DIR/vto_homekit.state" ]; then
+                cp "$INSTALL_DIR/vto_homekit.state" "$USER_DATA_BACKUP/" 2>/dev/null || true
+                log_success "✓ HomeKit状态文件备份完成"
+            fi
+            
+            # 备份日志目录（可选）
+            if [ -d "$INSTALL_DIR/logs" ]; then
+                cp -r "$INSTALL_DIR/logs" "$USER_DATA_BACKUP/" 2>/dev/null || true
+                log_success "✓ 日志文件备份完成"
+            fi
+            
+            # 备份配置文件
+            if [ -f "$INSTALL_DIR/config.py" ]; then
+                cp "$INSTALL_DIR/config.py" "$USER_DATA_BACKUP/" 2>/dev/null || true
+                log_success "✓ 配置文件备份完成"
+            fi
+            
             log_info "备份现有安装到: $BACKUP_DIR"
             mv "$INSTALL_DIR" "$BACKUP_DIR"
             mkdir -p "$INSTALL_DIR"
@@ -464,6 +501,48 @@ deploy_vto_application() {
         mkdir -p "$INSTALL_DIR/logs"
         mkdir -p "$INSTALL_DIR/db"
         mkdir -p "$INSTALL_DIR/instance"
+        
+        # 恢复用户数据
+        if [ -n "$USER_DATA_BACKUP" ] && [ -d "$USER_DATA_BACKUP" ]; then
+            log_info "恢复用户数据..."
+            
+            # 恢复数据库目录
+            if [ -d "$USER_DATA_BACKUP/db" ]; then
+                cp -r "$USER_DATA_BACKUP/db"/* "$INSTALL_DIR/db/" 2>/dev/null || true
+                log_success "✓ 数据库恢复完成"
+            fi
+            
+            # 恢复instance目录
+            if [ -d "$USER_DATA_BACKUP/instance" ]; then
+                cp -r "$USER_DATA_BACKUP/instance"/* "$INSTALL_DIR/instance/" 2>/dev/null || true
+                log_success "✓ 实例数据恢复完成"
+            fi
+            
+            # 恢复HomeKit状态文件
+            if [ -f "$USER_DATA_BACKUP/vto_homekit.state" ]; then
+                cp "$USER_DATA_BACKUP/vto_homekit.state" "$INSTALL_DIR/" 2>/dev/null || true
+                log_success "✓ HomeKit状态文件恢复完成"
+            fi
+            
+            # 恢复日志目录（如果需要）
+            if [ -d "$USER_DATA_BACKUP/logs" ] && [ "$(ls -A $USER_DATA_BACKUP/logs)" ]; then
+                cp -r "$USER_DATA_BACKUP/logs"/* "$INSTALL_DIR/logs/" 2>/dev/null || true
+                log_success "✓ 历史日志恢复完成"
+            fi
+            
+            # 恢复配置文件（如果存在且不与新版本冲突）
+            if [ -f "$USER_DATA_BACKUP/config.py" ] && [ ! -f "$INSTALL_DIR/config.py" ]; then
+                cp "$USER_DATA_BACKUP/config.py" "$INSTALL_DIR/" 2>/dev/null || true
+                log_success "✓ 配置文件恢复完成"
+            elif [ -f "$USER_DATA_BACKUP/config.py" ]; then
+                cp "$USER_DATA_BACKUP/config.py" "$INSTALL_DIR/config.py.backup" 2>/dev/null || true
+                log_info "✓ 旧配置文件已保存为 config.py.backup"
+            fi
+            
+            # 清理临时备份
+            rm -rf "$USER_DATA_BACKUP"
+            log_info "用户数据恢复完成，保留了所有数据库和配置"
+        fi
         
         # 设置执行权限
         chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
@@ -736,6 +815,14 @@ show_completion_info() {
     log_info "  ✓ 预编译Python虚拟环境"
     log_info "  ✓ VTO Flask应用程序"
     echo
+    if [ -n "$BACKUP_DIR" ]; then
+        log_info "数据保护信息:"
+        log_info "  ✓ 用户数据库已自动保留"
+        log_info "  ✓ HomeKit配置已自动保留"
+        log_info "  ✓ 设备配置已自动保留"
+        log_info "  ✓ 完整备份位置: $BACKUP_DIR"
+        echo
+    fi
     log_warning "请修改默认密码以确保安全！"
     log_info "访问系统后，进入用户管理页面修改admin密码"
     echo
