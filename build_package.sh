@@ -702,8 +702,6 @@ if [ -f "../tmp/vto-package/venv.zip" ]; then
         # 检查源包目录
         if [ -d "venv/lib/python3.11/site-packages" ]; then
             SOURCE_PACKAGES="venv/lib/python3.11/site-packages"
-        elif [ -d "venv/lib/python3.11/site-packages" ]; then
-            SOURCE_PACKAGES="venv/lib/python3.11/site-packages"
         else
             log_warning "未找到预编译包目录，跳过包迁移"
             rm -rf venv

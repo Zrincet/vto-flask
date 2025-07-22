@@ -480,7 +480,7 @@ create_system_service() {
     mkdir -p /opt/etc/init.d
     
     # 创建VTO启动脚本
-    cat > /opt/etc/init.d/S99vto << 'EOF'
+    cat > /opt/etc/init.d/vto << 'EOF'
 #!/bin/sh
 
 DAEMON="VTO Flask App"
@@ -538,7 +538,7 @@ esac
 exit 0
 EOF
 
-    chmod +x /opt/etc/init.d/S99vto 2>/dev/null || true
+    chmod +x /opt/etc/init.d/vto 2>/dev/null || true
     log_success "系统服务创建完成"
 }
 
@@ -571,7 +571,7 @@ start_vto_application() {
         
         log_info "应用访问地址: http://$LOCAL_IP:8998"
         log_info "默认账户: admin"
-        log_info "默认密码: 123456"
+        log_info "默认密码: 首次登录后需要自行设置"
     else
         log_error "VTO应用程序启动失败"
         log_info "请检查日志文件: $INSTALL_DIR/logs/app.log"
@@ -610,12 +610,11 @@ show_completion_info() {
     log_info "  查看状态: $INSTALL_DIR/server.sh status"
     echo
     log_info "系统服务:"
-    log_info "  启动: /opt/etc/init.d/S99vto start"
-    log_info "  停止: /opt/etc/init.d/S99vto stop"
-    log_info "  重启: /opt/etc/init.d/S99vto restart"
+    log_info "  启动: /opt/etc/init.d/vto start"
+    log_info "  停止: /opt/etc/init.d/vto stop"
+    log_info "  重启: /opt/etc/init.d/vto restart"
     echo
     log_info "日志文件: $INSTALL_DIR/logs/"
-    log_info "配置文件: $INSTALL_DIR/config.json"
     echo
     log_info "已安装的组件:"
     log_info "  ✓ opkg包管理器（离线安装）"
