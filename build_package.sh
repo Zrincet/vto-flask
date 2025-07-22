@@ -553,9 +553,7 @@ install_package "libffmpeg-full_*.ipk"
 install_package "ffmpeg_*.ipk"
 
 log_success "IPK包安装完成"
-EOF
-
-    # 创建应用部署脚本
+EOF    # 创建应用部署脚本
     cd "$WORK_DIR/package/install-scripts"
     cat > deploy_application.sh << 'EOF'
 #!/bin/sh
@@ -567,6 +565,10 @@ log_info() {
 
 log_success() {
     echo "[SUCCESS] $1"
+}
+
+log_warning() {
+    echo "[WARNING] $1"
 }
 
 log_error() {

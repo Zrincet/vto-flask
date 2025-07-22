@@ -703,8 +703,11 @@ show_completion_info() {
     
     # 获取IP地址
     LOCAL_IP=$(hostname -i 2>/dev/null || ip route get 1 | awk '{print $NF;exit}' 2>/dev/null || echo "localhost")
-    log_info "应用访问地址: http://$LOCAL_IP:8998"
-    log_info "默认账户: admin / 123456"
+    WAN_IF="apclii0"
+    WAN_IP=$(ip -4 addr show "$WAN_IF" | awk '/inet / {print $2}' | cut -d/ -f1)
+    log_info "应用路由器内访问地址: http://$LOCAL_IP:8998"
+    log_info "WAN口IP地址(需要防火墙关闭): http://$WAN_IP:8998"
+    log_info "默认账户: admin"
     echo
     log_info "VTO管理命令（可在任何目录使用）:"
     log_info "  启动服务: vto start"
