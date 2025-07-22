@@ -56,10 +56,6 @@ class MQTTClient:
         self.health_check_thread = None
         self.stop_event = threading.Event()
         
-        # 主动心跳检测
-        self.last_ping_sent = None
-        self.ping_pending = False
-        
     def set_app(self, app):
         """设置Flask应用实例"""
         self._app = app
@@ -164,7 +160,6 @@ class MQTTClient:
             self.last_activity_time = datetime.now()  # 更新活动时间
             self.reconnect_attempts = 0
             self.current_reconnect_interval = self.reconnect_interval  # 重置重连间隔
-            self.ping_pending = False  # 重置心跳等待状态
             
             logger.info(f"MQTT客户端 {self.client_id} 连接成功")
             
@@ -202,7 +197,6 @@ class MQTTClient:
         """MQTT心跳回调"""
         self.last_ping_time = datetime.now()
         self.last_activity_time = datetime.now()
-        self.ping_pending = False  # 收到心跳响应，清除等待状态
         logger.debug(f"MQTT客户端 {self.client_id} 心跳正常")
 
     def _on_socket_open(self, client, userdata, sock):
@@ -253,10 +247,6 @@ class MQTTClient:
                 
             logger.info(f"MQTT客户端 {self.client_id} 正在进行第 {self.reconnect_attempts} 次重连...")
             
-            # 重置状态
-            self.ping_pending = False
-            self.last_ping_sent = None
-            
             self._connect()
             
             # 等待连接结果
@@ -291,37 +281,38 @@ class MQTTClient:
                 if self.is_connected and self.client:
                     current_time = datetime.now()
                     
-                    # 检查是否需要发送心跳
-                    if (not self.last_ping_sent or 
-                        current_time - self.last_ping_sent > timedelta(seconds=self.ping_interval)):
-                        if not self.ping_pending:
-                            try:
-                                # 发送心跳
-                                self.client.ping()
-                                self.last_ping_sent = current_time
-                                self.ping_pending = True
-                                logger.debug(f"MQTT客户端 {self.client_id} 发送心跳")
-                            except Exception as ping_error:
-                                logger.warning(f"MQTT客户端 {self.client_id} 发送心跳失败: {str(ping_error)}")
-                                self.is_connected = False
-                                if self.auto_reconnect:
-                                    self._schedule_reconnect()
+                    # 检查socket连接状态
+                    if hasattr(self.client, '_sock') and self.client._sock:
+                        try:
+                            # 检查socket是否仍然有效
+                            self.client._sock.getpeername()
+                        except (OSError, AttributeError):
+                            # socket连接已断开
+                            logger.warning(f"MQTT客户端 {self.client_id} Socket连接异常，触发重连")
+                            self.is_connected = False
+                            if self.auto_reconnect:
+                                self._schedule_reconnect()
+                            continue
                     
-                    # 检查心跳响应超时
-                    if (self.ping_pending and self.last_ping_sent and 
-                        current_time - self.last_ping_sent > timedelta(seconds=self.ping_timeout)):
-                        logger.warning(f"MQTT客户端 {self.client_id} 心跳响应超时，触发重连")
-                        self.is_connected = False
-                        if self.auto_reconnect:
-                            self._schedule_reconnect()
+                    # 检查paho-mqtt内部的心跳状态
+                    if hasattr(self.client, '_ping_t') and self.client._ping_t > 0:
+                        # 如果_ping_t大于0，说明正在等待PINGRESP
+                        ping_start_time = self.client._ping_t
+                        if current_time.timestamp() - ping_start_time > self.ping_timeout:
+                            logger.warning(f"MQTT客户端 {self.client_id} 心跳响应超时，触发重连")
+                            self.is_connected = False
+                            if self.auto_reconnect:
+                                self._schedule_reconnect()
+                            continue
                     
                     # 检查连接活动超时（基于最后活动时间）
                     if (self.last_activity_time and 
                         current_time - self.last_activity_time > timedelta(seconds=self.connection_timeout)):
-                        logger.warning(f"MQTT客户端 {self.client_id} 连接活动超时，触发重连")
+                        logger.warning(f"MQTT客户端 {self.client_id} 连接活动超时({self.connection_timeout}秒)，触发重连")
                         self.is_connected = False
                         if self.auto_reconnect:
                             self._schedule_reconnect()
+                        continue
                 
                 # 每30秒检查一次
                 if self.stop_event.wait(30):
@@ -475,7 +466,7 @@ class MQTTClient:
 
     def get_status(self):
         """获取客户端状态信息"""
-        return {
+        status = {
             'client_id': self.client_id,
             'connected': self.is_connected,
             'running': self.is_running,
@@ -486,10 +477,23 @@ class MQTTClient:
             'last_disconnect_time': self.last_disconnect_time.isoformat() if self.last_disconnect_time else None,
             'last_ping_time': self.last_ping_time.isoformat() if self.last_ping_time else None,
             'last_activity_time': self.last_activity_time.isoformat() if self.last_activity_time else None,
-            'last_ping_sent': self.last_ping_sent.isoformat() if self.last_ping_sent else None,
-            'ping_pending': self.ping_pending,
             'subscribed_topics': list(self.subscribed_topics)
         }
+        
+        # 添加paho-mqtt内部状态信息
+        if self.client:
+            if hasattr(self.client, '_ping_t'):
+                status['ping_waiting'] = self.client._ping_t > 0
+                if self.client._ping_t > 0:
+                    status['ping_start_time'] = datetime.fromtimestamp(self.client._ping_t).isoformat()
+            if hasattr(self.client, '_state'):
+                status['mqtt_state'] = self.client._state
+            if hasattr(self.client, '_sock') and self.client._sock:
+                status['socket_connected'] = True
+            else:
+                status['socket_connected'] = False
+        
+        return status
 
 
 class MQTTManager:
