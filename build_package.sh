@@ -26,6 +26,11 @@ VENV_URL="https://oss-hk.hozoy.cn/vto-flask/venv.zip"
 # virtualenv whl文件下载地址
 VIRTUALENV_WHL_URL="https://files.pythonhosted.org/packages/5c/c6/f8f28009920a736d0df434b52e9feebfb4d702ba942f15338cb4a83eafc1/virtualenv-20.32.0-py3-none-any.whl"
 
+# virtualenv依赖包下载地址
+DISTLIB_WHL_URL="https://files.pythonhosted.org/packages/33/6b/e0547afaf41bf2c42e52430072fa5658766e3d65bd4b03a563d1b6336f57/distlib-0.4.0-py2.py3-none-any.whl"
+FILELOCK_WHL_URL="https://files.pythonhosted.org/packages/4d/36/2a115987e2d8c300a974597416d9de88f2444426de9571f4b59b2cca3acc/filelock-3.18.0-py3-none-any.whl"
+PLATFORMDIRS_WHL_URL="https://files.pythonhosted.org/packages/fe/39/979e8e21520d4e47a0bbe349e2713c0aac6f3d853d0e5b34d76206c439aa/platformdirs-4.3.8-py3-none-any.whl"
+
 # 日志函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -274,6 +279,48 @@ download_python_venv() {
             log_success "✓ virtualenv工具下载成功"
         else
             error_exit "virtualenv工具下载失败"
+        fi
+    fi
+
+    # 下载virtualenv依赖包
+    log_info "下载virtualenv依赖包..."
+    
+    # 下载distlib
+    log_info "下载: distlib-0.4.0-py2.py3-none-any.whl"
+    if wget --timeout=30 --tries=3 "$DISTLIB_WHL_URL" -O distlib-0.4.0-py2.py3-none-any.whl 2>/dev/null; then
+        log_success "✓ distlib-0.4.0-py2.py3-none-any.whl 下载成功"
+    else
+        log_warning "✗ distlib-0.4.0-py2.py3-none-any.whl 下载失败，尝试使用curl..."
+        if curl -L -o distlib-0.4.0-py2.py3-none-any.whl "$DISTLIB_WHL_URL" --connect-timeout 30 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ distlib-0.4.0-py2.py3-none-any.whl 下载成功"
+        else
+            log_warning "✗ distlib-0.4.0-py2.py3-none-any.whl 下载失败"
+        fi
+    fi
+    
+    # 下载filelock
+    log_info "下载: filelock-3.18.0-py3-none-any.whl"
+    if wget --timeout=30 --tries=3 "$FILELOCK_WHL_URL" -O filelock-3.18.0-py3-none-any.whl 2>/dev/null; then
+        log_success "✓ filelock-3.18.0-py3-none-any.whl 下载成功"
+    else
+        log_warning "✗ filelock-3.18.0-py3-none-any.whl 下载失败，尝试使用curl..."
+        if curl -L -o filelock-3.18.0-py3-none-any.whl "$FILELOCK_WHL_URL" --connect-timeout 30 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ filelock-3.18.0-py3-none-any.whl 下载成功"
+        else
+            log_warning "✗ filelock-3.18.0-py3-none-any.whl 下载失败"
+        fi
+    fi
+    
+    # 下载platformdirs
+    log_info "下载: platformdirs-4.3.8-py3-none-any.whl"
+    if wget --timeout=30 --tries=3 "$PLATFORMDIRS_WHL_URL" -O platformdirs-4.3.8-py3-none-any.whl 2>/dev/null; then
+        log_success "✓ platformdirs-4.3.8-py3-none-any.whl 下载成功"
+    else
+        log_warning "✗ platformdirs-4.3.8-py3-none-any.whl 下载失败，尝试使用curl..."
+        if curl -L -o platformdirs-4.3.8-py3-none-any.whl "$PLATFORMDIRS_WHL_URL" --connect-timeout 30 --max-time 300 --retry 3 --insecure; then
+            log_success "✓ platformdirs-4.3.8-py3-none-any.whl 下载成功"
+        else
+            log_warning "✗ platformdirs-4.3.8-py3-none-any.whl 下载失败"
         fi
     fi
 }
@@ -623,13 +670,6 @@ if [ -f "requirements.txt" ]; then
     
     # 激活虚拟环境
     . venv/bin/activate
-    
-    # 升级pip
-    if pip install --upgrade pip >/dev/null 2>&1; then
-        log_success "pip 升级成功"
-    else
-        log_warning "pip 升级失败，继续安装"
-    fi
     
     # 安装requirements.txt中的依赖（跳过已存在的）
     if pip install -r requirements.txt --no-cache-dir; then

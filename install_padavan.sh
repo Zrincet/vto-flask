@@ -330,11 +330,58 @@ install_python_environment() {
         error_exit "Python3 不可用，请确保已正确安装Python3"
     fi
     
-    # 首先安装virtualenv工具
+    # 按依赖顺序安装virtualenv工具及其依赖
+    log_info "安装virtualenv工具及其依赖..."
+    
+    # 安装distlib（基础依赖）
+    if [ -f "distlib-0.4.0-py2.py3-none-any.whl" ]; then
+        log_info "安装distlib依赖..."
+        if pip3 install distlib-0.4.0-py2.py3-none-any.whl --no-deps 2>/dev/null; then
+            log_success "distlib安装成功"
+        else
+            log_warning "distlib安装失败"
+        fi
+    else
+        log_warning "未找到distlib包"
+    fi
+    
+    # 安装platformdirs
+    if [ -f "platformdirs-4.3.8-py3-none-any.whl" ]; then
+        log_info "安装platformdirs依赖..."
+        if pip3 install platformdirs-4.3.8-py3-none-any.whl --no-deps 2>/dev/null; then
+            log_success "platformdirs安装成功"
+        else
+            log_warning "platformdirs安装失败"
+        fi
+    else
+        log_warning "未找到platformdirs包"
+    fi
+    
+    # 安装filelock
+    if [ -f "filelock-3.18.0-py3-none-any.whl" ]; then
+        log_info "安装filelock依赖..."
+        if pip3 install filelock-3.18.0-py3-none-any.whl --no-deps 2>/dev/null; then
+            log_success "filelock安装成功"
+        else
+            log_warning "filelock安装失败"
+        fi
+    else
+        log_warning "未找到filelock包"
+    fi
+    
+    # 最后安装virtualenv工具
     if [ -f "virtualenv-20.32.0-py3-none-any.whl" ]; then
         log_info "安装virtualenv工具..."
         if pip3 install virtualenv-20.32.0-py3-none-any.whl --no-deps 2>/dev/null; then
             log_success "virtualenv工具安装成功"
+            
+            # 验证virtualenv安装
+            if virtualenv --version >/dev/null 2>&1; then
+                VIRTUALENV_VERSION=$(virtualenv --version 2>&1)
+                log_success "virtualenv验证成功: $VIRTUALENV_VERSION"
+            else
+                log_warning "virtualenv安装后验证失败"
+            fi
         else
             log_warning "virtualenv工具安装失败，尝试系统自带venv模块"
         fi
