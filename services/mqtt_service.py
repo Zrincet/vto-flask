@@ -8,7 +8,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 import random
-import socket
 
 import paho.mqtt.client as mqtt
 
@@ -39,9 +38,9 @@ class MQTTClient:
         # 重连机制相关
         self.auto_reconnect = True
         self.reconnect_thread = None
-        self.reconnect_interval = 3  # 初始重连间隔减少到3秒
-        self.max_reconnect_interval = 60  # 最大重连间隔减少到60秒
-        self.reconnect_backoff = 1.3  # 重连间隔递增因子调整为1.3
+        self.reconnect_interval = 5  # 初始重连间隔（秒）
+        self.max_reconnect_interval = 300  # 最大重连间隔（5分钟）
+        self.reconnect_backoff = 1.5  # 重连间隔递增因子
         self.current_reconnect_interval = self.reconnect_interval
         self.last_connect_time = None
         self.last_disconnect_time = None
@@ -51,7 +50,7 @@ class MQTTClient:
         # 健康检查机制
         self.last_ping_time = None
         self.ping_interval = 30  # 心跳间隔（秒）
-        self.ping_timeout = 15  # 心跳超时增加到15秒
+        self.ping_timeout = 10  # 心跳超时（秒）
         self.health_check_thread = None
         self.stop_event = threading.Event()
         
@@ -94,7 +93,6 @@ class MQTTClient:
         # 断开MQTT连接
         if self.client:
             try:
-                # 停止自定义loop（通过loop_stop）
                 self.client.loop_stop()
                 self.client.disconnect()
             except Exception as e:
@@ -130,46 +128,17 @@ class MQTTClient:
             self.client.on_message = self._on_message
             self.client.on_disconnect = self._on_disconnect
             self.client.on_ping = self._on_ping
-            self.client.on_socket_close = self._on_socket_close
-            self.client.on_socket_open = self._on_socket_open
             
             # 设置连接参数
             self.client.keepalive = 60
             
-            # 设置套接字选项，增强网络超时处理
-            self.client.socket_timeout = 30  # 套接字超时
-            self.client.socket_keepalive = True  # 启用TCP keepalive
-            
-            # 设置超时重试参数
-            self.client.max_inflight_messages = 20
-            self.client.max_queued_messages = 0  # 不限制队列大小
-            
             # 开始连接
             logger.info(f"正在连接MQTT服务器: {self.mqtt_host}:{self.mqtt_port} (客户端: {self.client_id})")
-            
-            # 使用非阻塞连接，并添加异常处理
-            try:
-                self.client.connect_async(self.mqtt_host, self.mqtt_port, 60)
-                # 启动自定义的loop来处理网络异常
-                self._start_custom_loop()
-            except Exception as connect_error:
-                logger.error(f"启动MQTT连接时出错 (客户端: {self.client_id}): {str(connect_error)}")
-                if self.auto_reconnect and self.is_running:
-                    self._schedule_reconnect()
+            self.client.connect_async(self.mqtt_host, self.mqtt_port, 60)
+            self.client.loop_start()
             
         except Exception as e:
             logger.error(f"连接MQTT服务器失败 (客户端: {self.client_id}): {str(e)}")
-            if self.auto_reconnect and self.is_running:
-                self._schedule_reconnect()
-
-    def _start_custom_loop(self):
-        """启动自定义的MQTT循环，增强错误处理"""
-        try:
-            # 使用非阻塞的loop_start，而不是阻塞的loop_forever
-            self.client.loop_start()
-        except Exception as loop_error:
-            logger.error(f"MQTT客户端 {self.client_id} 启动loop时出错: {str(loop_error)}")
-            # 如果还在运行且需要重连，触发重连
             if self.auto_reconnect and self.is_running:
                 self._schedule_reconnect()
 
@@ -217,17 +186,6 @@ class MQTTClient:
         """MQTT心跳回调"""
         self.last_ping_time = datetime.now()
         logger.debug(f"MQTT客户端 {self.client_id} 心跳正常")
-    
-    def _on_socket_open(self, client, userdata, sock):
-        """套接字打开回调"""
-        logger.debug(f"MQTT客户端 {self.client_id} 套接字已打开")
-    
-    def _on_socket_close(self, client, userdata, sock):
-        """套接字关闭回调"""
-        logger.warning(f"MQTT客户端 {self.client_id} 套接字已关闭，可能需要重连")
-        self.is_connected = False
-        if self.auto_reconnect and self.is_running:
-            self._schedule_reconnect()
 
     def _schedule_reconnect(self):
         """安排重连"""
@@ -261,56 +219,26 @@ class MQTTClient:
             
             if not self.auto_reconnect or not self.is_running:
                 break
+                
+            logger.info(f"MQTT客户端 {self.client_id} 正在进行第 {self.reconnect_attempts} 次重连...")
+            self._connect()
             
-            try:
-                logger.info(f"MQTT客户端 {self.client_id} 正在进行第 {self.reconnect_attempts} 次重连...")
-                
-                # 检查网络连通性
-                if not self._check_network_connectivity():
-                    logger.warning(f"MQTT客户端 {self.client_id} 网络不通，跳过此次重连")
-                    # 继续等待，不增加重连间隔
-                    continue
-                
-                # 完全清理旧连接
-                if self.client:
-                    try:
-                        self.client.loop_stop()
-                        self.client.disconnect()
-                    except Exception as cleanup_error:
-                        logger.debug(f"清理旧连接时出错: {cleanup_error}")
-                    self.client = None
-                
-                # 重新建立连接
-                self._connect()
-                
-                # 等待连接结果，增加等待时间
-                connection_timeout = 15  # 增加到15秒
-                for i in range(connection_timeout):
-                    if self.is_connected:
-                        logger.info(f"MQTT客户端 {self.client_id} 重连成功")
-                        return  # 成功后直接返回
-                    if not self.is_running:
-                        break
-                    time.sleep(1)
-                
-                # 连接失败处理
-                if not self.is_connected:
-                    # 增加重连间隔
-                    self.current_reconnect_interval = min(
-                        self.current_reconnect_interval * self.reconnect_backoff,
-                        self.max_reconnect_interval
-                    )
-                    logger.warning(f"MQTT客户端 {self.client_id} 重连失败，下次间隔: {self.current_reconnect_interval:.1f} 秒")
-                    
-            except Exception as reconnect_error:
-                logger.error(f"MQTT客户端 {self.client_id} 重连过程出现异常: {str(reconnect_error)}")
+            # 等待连接结果
+            for _ in range(10):  # 等待最多10秒
+                if self.is_connected or not self.is_running:
+                    break
+                time.sleep(1)
+            
+            if self.is_connected:
+                logger.info(f"MQTT客户端 {self.client_id} 重连成功")
+                break
+            else:
                 # 增加重连间隔
                 self.current_reconnect_interval = min(
                     self.current_reconnect_interval * self.reconnect_backoff,
                     self.max_reconnect_interval
                 )
-                
-        logger.info(f"MQTT客户端 {self.client_id} 重连工作线程结束")
+                logger.warning(f"MQTT客户端 {self.client_id} 重连失败，下次间隔: {self.current_reconnect_interval:.1f} 秒")
 
     def _start_health_check(self):
         """启动健康检查"""
@@ -324,43 +252,21 @@ class MQTTClient:
         """健康检查工作线程"""
         while self.is_running and not self.stop_event.is_set():
             try:
-                if self.client:
-                    # 检查连接状态
-                    if self.is_connected:
-                        # 检查心跳超时
-                        if (self.last_ping_time and 
-                            datetime.now() - self.last_ping_time > timedelta(seconds=self.ping_timeout + self.ping_interval)):
-                            logger.warning(f"MQTT客户端 {self.client_id} 心跳超时，触发重连")
-                            self.is_connected = False
-                            if self.auto_reconnect:
-                                self._schedule_reconnect()
-                        
-                        # 检查客户端内部状态
-                        try:
-                            if not self.client.is_connected():
-                                logger.warning(f"MQTT客户端 {self.client_id} 内部状态显示未连接，触发重连")
-                                self.is_connected = False
-                                if self.auto_reconnect:
-                                    self._schedule_reconnect()
-                        except AttributeError:
-                            # 旧版本paho-mqtt可能没有is_connected方法
-                            pass
-                    else:
-                        # 如果标记为未连接但没有重连在进行，触发重连
-                        if self.auto_reconnect and not (self.reconnect_thread and self.reconnect_thread.is_alive()):
-                            logger.info(f"MQTT客户端 {self.client_id} 未连接且无重连进程，启动重连")
+                if self.is_connected and self.client:
+                    # 检查心跳超时
+                    if (self.last_ping_time and 
+                        datetime.now() - self.last_ping_time > timedelta(seconds=self.ping_timeout + self.ping_interval)):
+                        logger.warning(f"MQTT客户端 {self.client_id} 心跳超时，触发重连")
+                        self.is_connected = False
+                        if self.auto_reconnect:
                             self._schedule_reconnect()
                 
-                # 每15秒检查一次，更频繁的监控
-                if self.stop_event.wait(15):
+                # 每30秒检查一次
+                if self.stop_event.wait(30):
                     break
                     
             except Exception as e:
                 logger.error(f"MQTT客户端 {self.client_id} 健康检查出错: {str(e)}")
-                # 健康检查出错也可能表示连接问题，触发重连
-                if self.auto_reconnect and self.is_running:
-                    self.is_connected = False
-                    self._schedule_reconnect()
 
     def _subscribe_device_topics(self):
         """订阅设备主题"""
@@ -506,19 +412,6 @@ class MQTTClient:
             'last_ping_time': self.last_ping_time.isoformat() if self.last_ping_time else None,
             'subscribed_topics': list(self.subscribed_topics)
         }
-
-    def _check_network_connectivity(self):
-        """检查网络连通性"""
-        try:
-            # 尝试连接到MQTT服务器的端口
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5)  # 5秒超时
-            result = sock.connect_ex((self.mqtt_host, self.mqtt_port))
-            sock.close()
-            return result == 0
-        except Exception as e:
-            logger.debug(f"网络连通性检查失败: {str(e)}")
-            return False
 
 
 class MQTTManager:
