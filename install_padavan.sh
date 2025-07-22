@@ -669,8 +669,10 @@ start_vto_application() {
         
         # 获取IP地址
         LOCAL_IP=$(hostname -i 2>/dev/null || ip route get 1 | awk '{print $NF;exit}' 2>/dev/null || echo "localhost")
-        
+        WAN_IF="apclii0"
+        WAN_IP=$(ip -4 addr show "$WAN_IF" | awk '/inet / {print $2}' | cut -d/ -f1)
         log_info "应用访问地址: http://$LOCAL_IP:8998"
+        log_info "WAN口IP地址(需要防火墙关闭): http://$WAN_IP:8998"
         log_info "默认账户: admin"
         log_info "默认密码: 首次登录后需要自行设置"
     else
@@ -713,12 +715,12 @@ show_completion_info() {
     log_info "  更新应用: vto update"
     log_info "  帮助信息: vto help"
     echo
-    log_info "传统服务管理命令:"
-    log_info "  启动服务: $INSTALL_DIR/server.sh start"
-    log_info "  停止服务: $INSTALL_DIR/server.sh stop"
-    log_info "  重启服务: $INSTALL_DIR/server.sh restart"
-    log_info "  查看状态: $INSTALL_DIR/server.sh status"
-    echo
+#    log_info "传统服务管理命令:"
+#    log_info "  启动服务: $INSTALL_DIR/server.sh start"
+#    log_info "  停止服务: $INSTALL_DIR/server.sh stop"
+#    log_info "  重启服务: $INSTALL_DIR/server.sh restart"
+#    log_info "  查看状态: $INSTALL_DIR/server.sh status"
+#    echo
     log_info "日志文件: $INSTALL_DIR/logs/"
     echo
     log_info "已安装的组件:"
