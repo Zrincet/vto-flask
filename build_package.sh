@@ -480,10 +480,17 @@ install_package() {
     
     if [ -f "$pkg_file" ]; then
         log_info "安装: $pkg_file"
-        if /opt/bin/opkg install "$pkg_file" --force-depends --dest root 2>/dev/null; then
+        # 使用 --offline 标志防止网络下载，使用 --force-depends 忽略依赖检查
+        if /opt/bin/opkg install "$pkg_file" --offline --force-depends --dest root 2>/dev/null; then
             log_success "✓ $pkg_file 安装成功"
         else
-            log_warning "✗ $pkg_file 安装失败"
+            log_warning "✗ $pkg_file 安装失败，尝试不使用offline模式"
+            # 如果offline模式失败，尝试普通模式但禁用网络依赖解决
+            if /opt/bin/opkg install "$pkg_file" --force-depends --dest root --nodeps 2>/dev/null; then
+                log_success "✓ $pkg_file 安装成功（无依赖模式）"
+            else
+                log_warning "✗ $pkg_file 安装失败"
+            fi
         fi
     else
         log_warning "✗ 包文件不存在: $pkg_pattern"
@@ -539,21 +546,23 @@ install_package "python3_*.ipk"
 # 安装pip包管理器（在Python3之后）
 install_package "python3-pip_*.ipk"
 
-# FFmpeg依赖
+# FFmpeg依赖（按正确的依赖顺序安装）
+install_package "alsa-lib_*.ipk"
 install_package "libgmp_*.ipk"
 install_package "libnettle_*.ipk"
 install_package "libgnutls_*.ipk"
 install_package "libopus_*.ipk"
 install_package "libiconv-full_*.ipk"
 install_package "libv4l_*.ipk"
-install_package "shine_*.ipk"
 install_package "libx264_*.ipk"
-install_package "alsa-lib_*.ipk"
+install_package "shine_*.ipk"
 install_package "libffmpeg-full_*.ipk"
 install_package "ffmpeg_*.ipk"
 
 log_success "IPK包安装完成"
-EOF    # 创建应用部署脚本
+EOF
+
+    # 创建应用部署脚本
     cd "$WORK_DIR/package/install-scripts"
     cat > deploy_application.sh << 'EOF'
 #!/bin/sh
@@ -695,9 +704,9 @@ else
 fi
 
 # 解压预编译包并迁移到新环境
-if [ -f "../tmp/vto-package/venv.zip" ]; then
+if [ -f "/opt/tmp/vto-package/venv.zip" ]; then
     log_info "解压预编译Python包..."
-    cd ../tmp/vto-package
+    cd /opt/tmp/vto-package
     if unzip -q venv.zip; then
         log_success "预编译包解压完成"
         
@@ -759,9 +768,9 @@ if [ -f "requirements.txt" ]; then
     . venv/bin/activate
     
     # 先安装pycryptodome MIPS版本（优先安装特定架构版本）
-    if [ -f "../tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl" ]; then
+    if [ -f "/opt/tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl" ]; then
         log_info "安装MIPS版本pycryptodome..."
-        if pip install ../tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl --cache-dir /opt/tmp/pip 2>/dev/null; then
+        if pip install /opt/tmp/vto-package/pycryptodome-3.23.0-cp37-abi3-linux_mips.whl --cache-dir /opt/tmp/pip 2>/dev/null; then
             log_success "pycryptodome MIPS版本安装成功"
         else
             log_warning "pycryptodome MIPS版本安装失败，将尝试通过requirements.txt安装通用版本"
