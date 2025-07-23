@@ -361,8 +361,8 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- 引入QRCode.js库 -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- 引入qrcode-generator库 -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
 // 生成PIN码
 function generatePin() {
@@ -449,36 +449,58 @@ function loadHomeKitQRCode() {
             }
             
             // 生成二维码
-            if (data.data.xhm_uri && typeof QRCode !== 'undefined') {
-                // 清空容器并创建canvas
-                container.innerHTML = '<canvas id="qr-canvas"></canvas>';
-                
-                // 使用QRCode.js生成二维码
-                QRCode.toCanvas(document.getElementById('qr-canvas'), data.data.xhm_uri, {
-                    width: 300,
-                    height: 300,
-                    margin: 2,
-                    color: {
-                        dark: '#000000',
-                        light: '#FFFFFF'
-                    }
-                }, function (error) {
-                    if (error) {
-                        console.error('QR Code generation error:', error);
-                        showQRError(container, qrErrorContainer);
-                    } else {
-                        console.log('QR Code generated successfully');
-                        // 为canvas添加样式
-                        const canvas = document.getElementById('qr-canvas');
-                        if (canvas) {
-                            canvas.style.border = '1px solid #ddd';
-                            canvas.style.borderRadius = '8px';
-                            canvas.style.maxWidth = '300px';
+            if (data.data.xhm_uri && typeof qrcode !== 'undefined') {
+                try {
+                    // 清空容器并创建canvas
+                    container.innerHTML = '<canvas id="qr-canvas" width="300" height="300"></canvas>';
+                    
+                    const canvas = document.getElementById('qr-canvas');
+                    const context = canvas.getContext('2d');
+                    
+                    // 使用qrcode-generator生成二维码
+                    const typeNumber = 0; // 自动检测
+                    const errorCorrectionLevel = 'L';
+                    const qr = qrcode(typeNumber, errorCorrectionLevel);
+                    qr.addData(data.data.xhm_uri);
+                    qr.make();
+                    
+                    // 计算cell大小以适应300x300的canvas
+                    const moduleCount = qr.getModuleCount();
+                    const cellSize = Math.floor(280 / moduleCount); // 留20px边距
+                    const offsetX = (300 - cellSize * moduleCount) / 2;
+                    const offsetY = (300 - cellSize * moduleCount) / 2;
+                    
+                    // 清空canvas并设置白色背景
+                    context.fillStyle = '#FFFFFF';
+                    context.fillRect(0, 0, 300, 300);
+                    
+                    // 绘制二维码
+                    context.fillStyle = '#000000';
+                    for (let row = 0; row < moduleCount; row++) {
+                        for (let col = 0; col < moduleCount; col++) {
+                            if (qr.isDark(row, col)) {
+                                context.fillRect(
+                                    offsetX + col * cellSize, 
+                                    offsetY + row * cellSize, 
+                                    cellSize, 
+                                    cellSize
+                                );
+                            }
                         }
                     }
-                });
+                    
+                    console.log('QR Code generated successfully');
+                    // 为canvas添加样式
+                    canvas.style.border = '1px solid #ddd';
+                    canvas.style.borderRadius = '8px';
+                    canvas.style.maxWidth = '300px';
+                    
+                } catch (error) {
+                    console.error('QR Code generation error:', error);
+                    showQRError(container, qrErrorContainer);
+                }
             } else if (data.data.xhm_uri) {
-                // 没有QRCode库，使用在线服务生成
+                // 没有qrcode-generator库，使用在线服务生成
                 container.innerHTML = `
                     <div class="qr-code-display">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.data.xhm_uri)}" 
